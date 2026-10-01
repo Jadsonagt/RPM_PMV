@@ -1,0 +1,84 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+
+  :root {
+    /* Cores Institucionais de Votorantim */
+    --azul-institucional: #1A365D;
+    --azul-institucional-rgb: 26, 54, 93;
+    --azul-ativo-bg: #EBF5FF;
+    --cinza-texto: #4B5563;
+    --bg-aplicacao: #f8f9fa;
+
+    /* Sobrescrita Global do Primary do Bootstrap 5 para manter consistência nos Cards/Botões */
+    --bs-primary: #1A365D;
+    --bs-primary-rgb: 26, 54, 93;
+    
+    /* Fontes Globais */
+    --bs-font-sans-serif: 'Nunito', system-ui, -apple-system, sans-serif;
+    --bs-body-font-family: var(--bs-font-sans-serif);
+    --bs-body-bg: var(--bg-aplicacao);
+    --bs-body-color: var(--cinza-texto);
+  }
+
+  body {
+    font-family: var(--bs-font-sans-serif);
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+  }
+
+  /* Força a cor institucional em todos os títulos */
+  h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
+    color: var(--azul-institucional) !important;
+    font-weight: 700;
+  }
+
+  /* Configurações da Navbar Institucional (Branca) */
+  .navbar-custom {
+    background-color: #ffffff !important;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+
+  .brand-text {
+    color: var(--azul-institucional);
+    font-weight: 800;
+    font-size: 1.25rem;
+    margin-left: 12px;
+  }
+
+  /* Menu Navigation Links (Estilo Pílula - Adote e Doe) */
+  .nav-item-custom {
+    color: var(--cinza-texto) !important;
+    font-weight: 600;
+    padding: 0.5rem 1.25rem !important;
+    border-radius: 50rem;
+    margin: 0 0.25rem;
+    transition: all 0.2s ease-in-out;
+  }
+
+  .nav-item-custom:hover {
+    color: var(--azul-institucional) !important;
+    background-color: rgba(235, 245, 255, 0.5);
+  }
+
+  /* Estado Ativo do Menu */
+  .nav-item-custom.active {
+    background-color: var(--azul-ativo-bg) !important;
+    color: var(--azul-institucional) !important;
+    font-weight: 800;
+  }
+
+  /* Info do Usuário no canto direito da Navbar */
+  .nav-user-info {
+    color: var(--cinza-texto);
+  }
+  
+  .nav-user-info i {
+    color: var(--azul-institucional);
+  }
+
+  /* Regra global LGPD e bloqueio de inputs para melhor feedback visual */
+  input:read-only, input:disabled, select:disabled, textarea:read-only, textarea:disabled {
+    background-color: #e9ecef !important;
+    cursor: not-allowed;
+  }
+</style>

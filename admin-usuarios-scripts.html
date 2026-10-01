@@ -1,0 +1,633 @@
+<script>
+  function carregarTabelaUsuarios() {
+    const tbody = document.getElementById('tabela-usuarios-body');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando servidores...</td></tr>';
+    
+    // Dispara também o carregamento do select de Setores no Modal de Usuários
+    carregarSelectSetores();
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if (resposta.erro) {
+          tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">${resposta.erro}</td></tr>`;
+          return;
+        }
+        
+        let html = '';
+        if (resposta.usuarios.length === 0) {
+          html = '<tr><td colspan="6" class="text-center py-4 text-muted">Nenhum usuário encontrado.</td></tr>';
+        } else {
+          window.listaUsuariosAdmin = resposta.usuarios; // Salva na global para uso na edição
+          resposta.usuarios.forEach(user => {
+            // Adiciona o botão de edição e mantém regra da lixeira
+            const btnEditar = `<button class="btn btn-sm btn-outline-primary me-2" onclick="prepararEdicao('${user.email}')" title="Editar Usuário"><i class="bi bi-pencil"></i></button>`;
+            const btnExcluir = (user.email.toLowerCase() === window.usuarioAtual.email.toLowerCase()) 
+              ? `${btnEditar}<span class="badge bg-secondary">Você (Bloqueado)</span>` 
+              : `${btnEditar}<button class="btn btn-sm btn-outline-danger" onclick="excluirUsuarioFrontend('${user.email}')" title="Remover Acesso"><i class="bi bi-trash"></i></button>`;
+              
+            html += `
+              <tr>
+                <td><span class="fw-bold">${user.nome}</span></td>
+                <td class="text-muted">${user.email}</td>
+                <td><span class="badge bg-info text-dark">${user.setor}</span></td>
+                <td>${user.nivelAcesso}</td>
+                <td><code class="px-2 py-1 bg-light border rounded text-dark">********</code></td>
+                <td class="text-end">${btnExcluir}</td>
+              </tr>
+            `;
+          });
+        }
+        tbody.innerHTML = html;
+      })
+      .withFailureHandler(function(erro) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Erro de comunicação: ${erro}</td></tr>`;
+      })
+      .listarUsuariosDaBase();
+  }
+
+  function salvarNovoUsuarioFrontend() {
+    const form = document.getElementById('formUsuario');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    
+    const btn = document.getElementById('btnSalvarUsuario');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+    
+    const dadosObj = {
+      nome: form.nome.value,
+      email: form.email.value,
+      setor: form.setor.value,
+      nivel: form.nivel.value,
+      senha: form.senha ? form.senha.value : ''
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Usuário';
+        
+        if (resposta.sucesso) {
+          Swal.fire({
+            title: 'Usuário Cadastrado!', 
+            html: `<strong>ATENÇÃO:</strong> Copie e envie esta senha para o servidor:<br><br><h3 class="mt-2 text-primary user-select-all">${resposta.mensagem.split('ACESSO É: ')[1] || resposta.mensagem}</h3>`, 
+            icon: 'success'
+          });
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario'));
+          if(modalInst) modalInst.hide();
+          form.reset();
+          carregarTabelaUsuarios(); // Recarrega a tabela imediatamente
+        } else {
+          Swal.fire('Erro', resposta.erro, 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Usuário';
+        Swal.fire('Erro no Servidor', String(erro), 'error');
+      })
+      .salvarNovoUsuario(dadosObj); // The backend will be modified to handle Upsert
+  }
+
+  function prepararEdicao(email) {
+    const user = (window.listaUsuariosAdmin || []).find(u => u.email === email);
+    if (!user) return;
+
+    const campoNome = document.getElementById('input-usuario-nome');
+    if (campoNome) campoNome.value = user.nome;
+
+    const campoEmail = document.getElementById('input-usuario-email');
+    if (campoEmail) {
+      campoEmail.value = user.email;
+      campoEmail.readOnly = true;
+    }
+
+    const campoSetor = document.getElementById('select-setor-modal');
+    if (campoSetor) campoSetor.value = user.setor;
+
+    const campoNivel = document.getElementById('input-usuario-nivel');
+    if (campoNivel) campoNivel.value = user.nivelAcesso;
+
+    const campoSenha = document.getElementById('input-usuario-senha');
+    if (campoSenha) {
+      campoSenha.value = '';
+      campoSenha.placeholder = 'Deixe em branco para manter a senha atual';
+    }
+
+    const tituloModal = document.getElementById('modalNovoUsuarioLabel') || document.querySelector('#modalNovoUsuario .modal-title');
+    if (tituloModal) {
+      tituloModal.innerHTML = '<i class="bi bi-person-lines-fill me-2"></i> Editar Servidor';
+    }
+
+    const modalInst = new bootstrap.Modal(document.getElementById('modalNovoUsuario'));
+    modalInst.show();
+  }
+
+  // Listener para resetar o modal ao fechar
+  document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('modalNovoUsuario');
+    if (modalEl) {
+      modalEl.addEventListener('hidden.bs.modal', function () {
+        const form = document.getElementById('formUsuario');
+        if (form) {
+          form.reset();
+        }
+        
+        const campoEmail = document.getElementById('input-usuario-email');
+        if (campoEmail) campoEmail.readOnly = false;
+        
+        const campoSenha = document.getElementById('input-usuario-senha');
+        if (campoSenha) campoSenha.placeholder = 'Deixada em branco, será gerada automaticamente.';
+        
+        const tituloModal = document.getElementById('modalNovoUsuarioLabel') || document.querySelector('#modalNovoUsuario .modal-title');
+        if (tituloModal) {
+          tituloModal.innerHTML = '<i class="bi bi-person-badge me-2"></i>Novo Servidor';
+        }
+      });
+    }
+  });
+
+  function excluirUsuarioFrontend(email) {
+    Swal.fire({
+      title: 'Atenção',
+      text: `CUIDADO: Tem certeza que deseja revogar definitivamente o acesso de [${email}]?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: 'Sim, revogar acesso',
+      cancelButtonText: 'Cancelar'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const tbody = document.getElementById('tabela-usuarios-body');
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-danger"><span class="spinner-border spinner-border-sm me-2"></span>Excluindo...</td></tr>';
+        
+        google.script.run
+          .withSuccessHandler(function(resposta) {
+            if (resposta.sucesso) {
+              carregarTabelaUsuarios();
+            } else {
+              Swal.fire('Erro', resposta.erro, 'error');
+              carregarTabelaUsuarios();
+            }
+          })
+          .withFailureHandler(function(erro) {
+            Swal.fire('Erro no Servidor', String(erro), 'error');
+            carregarTabelaUsuarios();
+          })
+          .excluirUsuario(email);
+      }
+    });
+  }
+
+  function carregarSelectSetores() {
+    const select = document.getElementById('select-setor-modal');
+    if(!select) return;
+    
+    select.innerHTML = '<option value="">Carregando setores...</option>';
+    
+    google.script.run
+      .withSuccessHandler(function(setores) {
+        let html = '<option value="">Selecione um setor...</option>';
+        setores.forEach(s => {
+          if (s.status !== 'Inativo') {
+            html += `<option value="${s.setor}">${s.setor}</option>`;
+          }
+        });
+        select.innerHTML = html;
+      })
+      .withFailureHandler(function(erro) {
+        select.innerHTML = '<option value="">Erro ao carregar</option>';
+      })
+      .listarSetoresBase();
+  }
+
+  // ---- GESTÃO DE SETORES ----
+
+  function carregarTabelaSetores() {
+    const tbody = document.getElementById('tabela-setores-body');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando setores...</td></tr>';
+
+    google.script.run
+      .withSuccessHandler(function(setores) {
+        if (!setores || setores.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Nenhum setor cadastrado.</td></tr>';
+          return;
+        }
+
+        let html = '';
+        setores.forEach(s => {
+          const corPreview = s.cor 
+            ? `<span class="d-inline-block rounded-circle me-2" style="width:18px; height:18px; background:${s.cor}; border:1px solid #ccc; vertical-align:middle;"></span><code>${s.cor}</code>` 
+            : '<span class="text-muted">—</span>';
+          const logoPreview = s.logo 
+            ? `<img src="${s.logo}" style="height:28px; max-width:80px; object-fit:contain;" onerror="this.outerHTML='<span class=\\'text-danger small\\'>Link quebrado</span>'">` 
+            : '<span class="text-muted">—</span>';
+
+          const statusBadge = s.status === 'Inativo' ? '<span class="badge bg-danger">Inativo</span>' : '<span class="badge bg-success">Ativo</span>';
+          const iconStatus = s.status === 'Inativo' ? 'bi-check-circle' : 'bi-slash-circle';
+          const titleStatus = s.status === 'Inativo' ? 'Habilitar Setor' : 'Desabilitar Setor';
+          const btnColor = s.status === 'Inativo' ? 'btn-outline-success' : 'btn-outline-danger';
+          
+          html += `
+            <tr class="${s.status === 'Inativo' ? 'table-secondary opacity-75' : ''}">
+              <td><span class="fw-bold">${s.setor}</span> <div class="mt-1">${statusBadge}</div></td>
+              <td>${corPreview}</td>
+              <td>${logoPreview}</td>
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-primary" onclick="abrirModalEditarSetor('${s.setor.replace(/'/g, "\\'")}', '${s.cor}', '${s.logo}')" title="Editar" ${s.status === 'Inativo' ? 'disabled' : ''}>
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-info ms-1" onclick="abrirModalVincularCampos('${s.setor.replace(/'/g, "\\'")}', '${s.camposVinculados || ''}')" title="Configurar Formulário do Setor" ${s.status === 'Inativo' ? 'disabled' : ''}>
+                  <i class="bi bi-ui-checks"></i>
+                </button>
+                <button class="btn btn-sm ${btnColor} ms-1" onclick="alternarStatusSetorFrontend('${s.setor.replace(/'/g, "\\'")}', '${s.status}')" title="${titleStatus}">
+                  <i class="bi ${iconStatus}"></i>
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+      })
+      .withFailureHandler(function(erro) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Erro: ${erro}</td></tr>`;
+      })
+      .listarSetoresBase();
+  }
+
+  function abrirModalEditarSetor(nome, cor, logo) {
+    document.getElementById('edit-setor-nome').value = nome;
+    document.getElementById('edit-setor-cor').value = cor || '#1A365D';
+    document.getElementById('edit-setor-logo').value = logo || '';
+    
+    const modal = new bootstrap.Modal(document.getElementById('modalEditarSetor'));
+    modal.show();
+  }
+
+  function alternarStatusSetorFrontend(setorNome, statusAtual) {
+    const acao = statusAtual === 'Ativo' ? 'desabilitar' : 'habilitar';
+    Swal.fire({
+      title: 'Atenção',
+      text: `Tem certeza que deseja ${acao} o setor '${setorNome}'?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: `Sim, ${acao}`,
+      cancelButtonText: 'Cancelar'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        google.script.run
+          .withSuccessHandler(function(resposta) {
+            if(resposta.sucesso) {
+              carregarTabelaSetores();
+            } else {
+              Swal.fire('Erro', resposta.erro, 'error');
+            }
+          })
+          .withFailureHandler(function(erro) {
+            Swal.fire('Erro no Servidor', String(erro), 'error');
+          })
+          .alternarStatusSetor(setorNome);
+      }
+    });
+  }
+
+  function salvarEdicaoSetorFrontend() {
+    const btn = document.getElementById('btnSalvarEdicaoSetor');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+
+    const dadosObj = {
+      setorNomeAntigo: document.getElementById('edit-setor-nome').value,
+      cor: document.getElementById('edit-setor-cor').value,
+      logo: document.getElementById('edit-setor-logo').value
+    };
+
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
+
+        if (resposta && resposta.sucesso) {
+          Swal.fire('Sucesso!', resposta.mensagem || "Setor atualizado com sucesso!", 'success');
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalEditarSetor'));
+          if (modalInst) modalInst.hide();
+          carregarTabelaSetores();
+        } else {
+          Swal.fire('Erro', resposta ? resposta.erro : "Resposta vazia do servidor.", 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
+        Swal.fire('Erro no Servidor', String(erro), 'error');
+      })
+      .editarSetor(dadosObj);
+  }
+
+  function salvarNovoSetorFrontend() {
+    const form = document.getElementById('formNovoSetor');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    
+    const btn = document.getElementById('btnSalvarNovoSetor');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+    
+    const dadosObj = {
+      nome: form.nome.value,
+      cor: form.cor.value,
+      logo: form.logo.value
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Setor';
+        
+        if (resposta.sucesso) {
+          Swal.fire('Sucesso!', resposta.mensagem || "Setor cadastrado com sucesso!", 'success');
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalNovoSetor'));
+          if(modalInst) modalInst.hide();
+          form.reset();
+          carregarTabelaSetores(); 
+        } else {
+          Swal.fire('Erro', resposta.erro, 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Setor';
+        Swal.fire('Erro no Servidor', String(erro), 'error');
+      })
+      .salvarNovoSetor(dadosObj);
+  }
+
+  // ---- MOTOR DE FORMULÁRIOS (Admin) ----
+
+  function carregarConfigFormularios() {
+    const tbody = document.getElementById('tabela-campos-body');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando Dicionário Global...</td></tr>';
+    
+    google.script.run
+      .withSuccessHandler(function(campos) {
+        renderizarTabelaCampos(campos);
+      })
+      .withFailureHandler(function(erro) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-danger">Erro: ${erro}</td></tr>`;
+      })
+      .listarCamposGlobais();
+  }
+
+  function renderizarTabelaCampos(campos) {
+    const tbody = document.getElementById('tabela-campos-body');
+    if (!campos || campos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Nenhum campo ativo no Dicionário Global.</td></tr>';
+      return;
+    }
+    
+    const tipoLabels = { 'text': 'Texto', 'number': 'Número', 'date': 'Data', 'textarea': 'Texto Longo', 'select': 'Sim/Não' };
+    
+    let html = '';
+    campos.forEach(c => {
+      const tipoDisplay = tipoLabels[c.tipo] || c.tipo;
+      
+      html += `
+        <tr>
+          <td><span class="fw-bold">${c.label}</span></td>
+          <td><code>${c.id}</code></td>
+          <td><span class="badge bg-secondary">${tipoDisplay}</span></td>
+          <td><span class="badge bg-success">Ativo</span></td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-primary" onclick="abrirModalEditarCampo('${c.id}', '${c.label.replace(/'/g, "\\'")}', '${c.tipo}', '${(c.opcoes||'').replace(/'/g, "\\'")}')" title="Editar campo">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-warning ms-1" onclick="inativarCampoFrontend('${c.id}')" title="Desativar campo">
+              <i class="bi bi-eye-slash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+  }
+
+  function abrirModalVincularCampos(setor, camposVinculados) {
+    document.getElementById('vincular-setor-nome-display').textContent = setor;
+    document.getElementById('vincular-setor-nome').value = setor;
+    
+    const container = document.getElementById('lista-campos-globais');
+    container.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Carregando dicionário...</span>';
+    
+    const idsVinculados = camposVinculados.split(',').map(s => s.trim().toLowerCase());
+    
+    google.script.run
+      .withSuccessHandler(function(globais) {
+        let html = '';
+        if (!globais || globais.length === 0) {
+          container.innerHTML = '<span class="text-muted">Nenhum campo disponível no Dicionário Global.</span>';
+          return;
+        }
+        
+        globais.forEach(c => {
+          const isChecked = idsVinculados.includes(c.id.toLowerCase()) ? 'checked' : '';
+          html += `
+            <div class="form-check form-switch fs-6 p-2 border rounded bg-white shadow-sm" style="min-width: 250px;">
+              <input class="form-check-input ms-0 me-2 chk-vinculo" type="checkbox" id="chk_${c.id}" value="${c.id}" ${isChecked}>
+              <label class="form-check-label ms-1" for="chk_${c.id}">
+                <span class="fw-bold">${c.label}</span><br>
+                <small class="text-muted"><code>${c.id}</code> | ${c.tipo}</small>
+              </label>
+            </div>
+          `;
+        });
+        container.innerHTML = html;
+      })
+      .withFailureHandler(function() {
+        container.innerHTML = '<span class="text-danger">Erro ao carregar campos.</span>';
+      })
+      .listarCamposGlobais();
+      
+    const modal = new bootstrap.Modal(document.getElementById('modalVincularCampos'));
+    modal.show();
+  }
+
+  function salvarVinculosFrontend() {
+    const btn = document.getElementById('btnSalvarVinculos');
+    const setorNome = document.getElementById('vincular-setor-nome').value;
+    
+    const checks = document.querySelectorAll('.chk-vinculo:checked');
+    let idsSelecionados = [];
+    checks.forEach(chk => idsSelecionados.push(chk.value));
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Formulário do Órgão';
+        
+        if (resposta && resposta.sucesso) {
+          Swal.fire('Sucesso!', resposta.mensagem, 'success');
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalVincularCampos'));
+          if (modalInst) modalInst.hide();
+          carregarTabelaSetores();
+        } else {
+          Swal.fire('Erro', resposta ? resposta.erro : "Falha desconhecida.", 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Formulário do Órgão';
+        Swal.fire('Erro na Comunicação', String(erro), 'error');
+      })
+      .salvarCamposDoSetor(setorNome, idsSelecionados);
+  }
+
+  function salvarNovoCampoFrontend() {
+    const form = document.getElementById('formNovoCampo');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    
+    const btn = document.getElementById('btnSalvarNovoCampo');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Criando...';
+    
+    const dadosObj = {
+      label: form.label.value,
+      tipo: form.tipo.value,
+      opcoes: form.opcoes ? form.opcoes.value : ''
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Criar Campo';
+        
+        if (resposta.sucesso) {
+          Swal.fire('Sucesso!', resposta.mensagem, 'success');
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalNovoCampo'));
+          if (modalInst) modalInst.hide();
+          form.reset();
+          carregarConfigFormularios();
+        } else {
+          Swal.fire('Erro', resposta.erro, 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Criar Campo';
+        Swal.fire('Erro no Servidor', String(erro), 'error');
+      })
+      .adicionarNovoCampoFormulario(dadosObj);
+  }
+
+  function inativarCampoFrontend(idColuna) {
+    Swal.fire({
+      title: 'Atenção',
+      text: `Deseja realmente INATIVAR o campo "${idColuna}" do Dicionário Global?\n\nO campo deixará de aparecer em TODOS os formulários que o utilizam, mas os dados históricos serão preservados na aba ATENDIMENTOS.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: 'Sim, inativar campo',
+      cancelButtonText: 'Cancelar'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const tbody = document.getElementById('tabela-campos-body');
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Inativando...</td></tr>';
+        
+        google.script.run
+          .withSuccessHandler(function(resposta) {
+            if (resposta.sucesso) {
+              Swal.fire('Sucesso!', resposta.mensagem, 'success');
+            } else {
+              Swal.fire('Erro', resposta.erro, 'error');
+            }
+            carregarConfigFormularios();
+          })
+          .withFailureHandler(function(erro) {
+            Swal.fire('Erro no Servidor', String(erro), 'error');
+            carregarConfigFormularios();
+          })
+          .inativarCampoFormulario(idColuna);
+      }
+    });
+  }
+
+  // --- Funções de Edição e Tipo de Input ---
+  
+  function toggleOpcoesNovo() {
+    const sel = document.getElementById('select-tipo-novo');
+    const div = document.getElementById('div-opcoes-novo');
+    if (sel.value === 'select') {
+      div.classList.remove('d-none');
+    } else {
+      div.classList.add('d-none');
+      document.getElementById('input-opcoes-novo').value = '';
+    }
+  }
+
+  function toggleOpcoesEditar() {
+    const sel = document.getElementById('edit-campo-tipo');
+    const div = document.getElementById('div-opcoes-editar');
+    if (sel.value === 'select') {
+      div.classList.remove('d-none');
+    } else {
+      div.classList.add('d-none');
+      document.getElementById('edit-campo-opcoes').value = '';
+    }
+  }
+
+  function abrirModalEditarCampo(id, label, tipo, opcoes) {
+    document.getElementById('edit-campo-id').value = id;
+    document.getElementById('edit-campo-label').value = label;
+    document.getElementById('edit-campo-tipo').value = tipo;
+    document.getElementById('edit-campo-opcoes').value = opcoes;
+    
+    toggleOpcoesEditar();
+    
+    const modal = new bootstrap.Modal(document.getElementById('modalEditarCampo'));
+    modal.show();
+  }
+
+  function salvarEdicaoCampoFrontend() {
+    const form = document.getElementById('formEditarCampo');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    
+    const btn = document.getElementById('btnSalvarEdicaoCampo');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+    
+    const dadosObj = {
+      idColuna: form.idColuna.value,
+      label: form.label.value,
+      tipo: form.tipo.value,
+      opcoes: form.opcoes ? form.opcoes.value : ''
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
+        
+        if (resposta.sucesso) {
+          Swal.fire('Sucesso!', resposta.mensagem, 'success');
+          const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalEditarCampo'));
+          if (modalInst) modalInst.hide();
+          carregarConfigFormularios();
+        } else {
+          Swal.fire('Erro', resposta.erro, 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
+        Swal.fire('Erro no Servidor', String(erro), 'error');
+      })
+      .editarCampoGlobal(dadosObj);
+  }
+</script>

@@ -1,0 +1,1096 @@
+<script>
+  window.usuarioAtual = null;
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const savedEmail = localStorage.getItem('rpm_email');
+    const savedSenha = localStorage.getItem('rpm_senha');
+    
+    if (savedEmail && savedSenha) {
+      google.script.run
+        .withSuccessHandler(onLoginSuccess)
+        .withFailureHandler(onLoginError)
+        .validarLoginManual(savedEmail, savedSenha);
+    } else {
+      // Exibe a tela de login
+      const loadingScreen = document.getElementById('loading-screen');
+      const loginScreen = document.getElementById('login-screen');
+      if (loadingScreen) loadingScreen.classList.add('d-none');
+      if (loginScreen) {
+        loginScreen.classList.remove('d-none');
+        loginScreen.classList.add('d-flex');
+      }
+    }
+  });
+
+  function efetuarLogin() {
+    const email = document.getElementById('login-email').value;
+    const senha = document.getElementById('login-senha').value;
+    const btn = document.getElementById('btn-login');
+    const errorContainer = document.getElementById('login-error');
+    const errorMsg = document.getElementById('login-error-msg');
+    
+    if(!email || !senha) return;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Validando...';
+    errorContainer.classList.add('d-none');
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if(resposta.autenticado) {
+          localStorage.setItem('rpm_email', email);
+          localStorage.setItem('rpm_senha', senha);
+          onLoginSuccess(resposta);
+        } else {
+          errorMsg.textContent = resposta.erro;
+          errorContainer.classList.remove('d-none');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar';
+        }
+      })
+      .withFailureHandler(function(erro) {
+        errorMsg.textContent = "Erro de conexão. Tente novamente.";
+        errorContainer.classList.remove('d-none');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar';
+      })
+      .validarLoginManual(email, senha);
+  }
+
+  function fazerLogout() {
+    localStorage.removeItem('rpm_email');
+    localStorage.removeItem('rpm_senha');
+    sessionStorage.clear();
+    window.usuarioAtual = null;
+    
+    // Retorna para a tela de login via SPA (evita bugs de redirecionamento em iframe)
+    const appContainer = document.getElementById('app-container');
+    const loginScreen = document.getElementById('login-screen');
+    
+    if (appContainer) appContainer.classList.add('d-none');
+    
+    if (loginScreen) {
+      loginScreen.classList.remove('d-none');
+      loginScreen.classList.add('d-flex');
+    }
+  }
+
+  function onLoginSuccess(resposta) {
+    try {
+      const loadingScreen = document.getElementById('loading-screen');
+      const loginScreen = document.getElementById('login-screen');
+      const appContainer = document.getElementById('app-container');
+
+      if(loadingScreen) {
+        loadingScreen.classList.add('d-none');
+        loadingScreen.classList.remove('d-flex');
+      }
+      if(loginScreen) {
+        loginScreen.classList.add('d-none');
+        loginScreen.classList.remove('d-flex');
+      }
+
+      if (resposta && resposta.autenticado) {
+        window.usuarioAtual = resposta;
+        
+        document.getElementById('nav-user-name').textContent = resposta.nome;
+        document.getElementById('nav-user-sector').textContent = resposta.setor;
+
+        // Personalização Visual Dinâmica (Aba SETORES)
+        const containerIdentidade = document.getElementById('identidade-setor');
+        if (containerIdentidade) {
+          if (resposta.corTema) {
+            containerIdentidade.style.borderLeftColor = resposta.corTema;
+          }
+          if (resposta.urlLogo) {
+            const imgSetor = document.getElementById('logo-setor-ativo');
+            imgSetor.src = resposta.urlLogo;
+            imgSetor.classList.remove('d-none');
+          }
+          document.getElementById('texto-setor-ativo').textContent = `Atuando pela frente: ${resposta.setor}`;
+          containerIdentidade.classList.remove('d-none');
+        }
+
+        // Valida RBAC para habilitar botão de Dashboard (Gestores Gerais)
+        const niveisPainel = ['admin', 'diretoria', 'secretarios', 'secretario', 'secretário'];
+        const nivelUsuario = String(resposta.nivelAcesso || '').trim().toLowerCase();
+        const abaGerencial = document.getElementById('btn-tab-dashboard');
+
+        if (abaGerencial) {
+            if (niveisPainel.includes(nivelUsuario)) {
+                abaGerencial.classList.remove('d-none');
+            } else {
+                abaGerencial.classList.add('d-none');
+            }
+        }
+
+        // Valida RBAC para habilitar Config. Formulários e Setores (Admin e TI)
+        const nivel = resposta.nivelAcesso ? resposta.nivelAcesso.toLowerCase() : '';
+        if (nivel === 'admin' || nivel === 'ti') {
+          document.getElementById('btn-tab-usuarios').classList.remove('d-none');
+          document.getElementById('btn-tab-setores').classList.remove('d-none');
+          document.getElementById('btn-tab-formularios').classList.remove('d-none');
+        }
+
+        if(appContainer) appContainer.classList.remove('d-none');
+        
+        configurarEventosViaCep();
+      } else {
+        if (resposta && resposta.erro) {
+          localStorage.removeItem('rpm_email');
+          localStorage.removeItem('rpm_senha');
+          const msgEl = document.getElementById('login-error-msg');
+          const errorContainer = document.getElementById('login-error');
+          if(msgEl && errorContainer) {
+            msgEl.textContent = resposta.erro;
+            errorContainer.classList.remove('d-none');
+          }
+        }
+        if(loginScreen) {
+          loginScreen.classList.remove('d-none');
+          loginScreen.classList.add('d-flex');
+        }
+      }
+    } catch (error) {
+      console.error("Erro no onLoginSuccess:", error);
+      Swal.fire('Erro fatal na inicialização', error.message, 'error');
+      const loadingScreen = document.getElementById('loading-screen');
+      const loginScreen = document.getElementById('login-screen');
+      if(loadingScreen) loadingScreen.classList.add('d-none');
+      if(loginScreen) loginScreen.classList.remove('d-none');
+    }
+  }
+
+  function onLoginError(erro) {
+    const msgEl = document.getElementById('login-error-msg');
+    const errorContainer = document.getElementById('login-error');
+    if (msgEl && errorContainer) {
+      msgEl.textContent = `Erro no Servidor: ${erro.message || erro}`;
+      errorContainer.classList.remove('d-none');
+    }
+    const loadingScreen = document.getElementById('loading-screen');
+    const loginScreen = document.getElementById('login-screen');
+    if(loadingScreen) {
+      loadingScreen.classList.add('d-none');
+      loadingScreen.classList.remove('d-flex');
+    }
+    if(loginScreen) {
+      loginScreen.classList.remove('d-none');
+      loginScreen.classList.add('d-flex');
+    }
+  }
+
+  // ---- NAVEGAÇÃO DE ABAS ----
+  
+  function alternarAba(event, abaDestino) {
+    if (event) event.preventDefault();
+    
+    const abaAtend = document.getElementById('aba-atendimentos');
+    const abaDash = document.getElementById('dashboard-container');
+    const abaUsuarios = document.getElementById('usuarios-container');
+    const abaSetores = document.getElementById('setores-container');
+    const abaFormularios = document.getElementById('formularios-container');
+    
+    const btnAtend = document.getElementById('btn-tab-atendimentos');
+    const btnDash = document.getElementById('btn-tab-dashboard');
+    const btnUsuarios = document.getElementById('btn-tab-usuarios');
+    const btnSetores = document.getElementById('btn-tab-setores');
+    const btnFormularios = document.getElementById('btn-tab-formularios');
+
+    // Reset geral de visibilidade
+    if(abaAtend) abaAtend.classList.add('d-none');
+    if(abaDash) abaDash.classList.add('d-none');
+    if(abaUsuarios) abaUsuarios.classList.add('d-none');
+    if(abaSetores) abaSetores.classList.add('d-none');
+    if(abaFormularios) abaFormularios.classList.add('d-none');
+    
+    if(btnAtend) btnAtend.classList.remove('active');
+    if(btnDash) btnDash.classList.remove('active');
+    if(btnUsuarios) btnUsuarios.classList.remove('active');
+    if(btnSetores) btnSetores.classList.remove('active');
+    if(btnFormularios) btnFormularios.classList.remove('active');
+
+    if (abaDestino === 'atendimentos') {
+      if(abaAtend) abaAtend.classList.remove('d-none');
+      if(btnAtend) btnAtend.classList.add('active');
+    } else if (abaDestino === 'dashboard') {
+      if(abaDash) abaDash.classList.remove('d-none');
+      if(btnDash) btnDash.classList.add('active');
+      carregarDashboard();
+    } else if (abaDestino === 'usuarios') {
+      if(abaUsuarios) abaUsuarios.classList.remove('d-none');
+      if(btnUsuarios) btnUsuarios.classList.add('active');
+      carregarTabelaUsuarios();
+    } else if (abaDestino === 'setores') {
+      if(abaSetores) abaSetores.classList.remove('d-none');
+      if(btnSetores) btnSetores.classList.add('active');
+      carregarTabelaSetores();
+    } else if (abaDestino === 'formularios') {
+      if(abaFormularios) abaFormularios.classList.remove('d-none');
+      if(btnFormularios) btnFormularios.classList.add('active');
+      carregarConfigFormularios();
+    }
+  }
+
+  // ---- MOTOR DE FORMULÁRIOS DINÂMICOS (Frontend) ----
+  
+  /**
+   * Busca os campos ativos para o usuário logado e renderiza os inputs no modal.
+   */
+  function configurarFormularioDinamico(email) {
+    const container = document.getElementById('campos-dinamicos-container');
+    if (!container) return;
+    
+    container.innerHTML = '<p class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Carregando campos do seu órgão...</p>';
+
+    if (!email) {
+       container.innerHTML = '<p class="text-danger small"><i class="bi bi-exclamation-triangle me-1"></i>Erro: Usuário não identificado.</p>';
+       return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function(campos) {
+        if (campos && campos.status === 'erro') {
+          container.innerHTML = '<p class="text-danger small"><i class="bi bi-exclamation-triangle me-1"></i>Erro ao carregar campos: ' + campos.mensagem + '</p>';
+          return;
+        }
+        if (!campos || campos.length === 0) {
+          container.innerHTML = '<p class="text-muted small"><i class="bi bi-info-circle me-1"></i>Nenhum campo específico configurado para o seu setor.</p>';
+          return;
+        }
+        
+        let html = '';
+        campos.forEach(campo => {
+          const colClass = campo.tipo === 'textarea' ? 'col-12' : 'col-md-6';
+          html += `<div class="${colClass}">`;
+          
+          let badgeHtml = '';
+          if (campo.setoresBadge) {
+            badgeHtml = `<span class="badge bg-info text-dark ms-2" style="font-size: 0.65em;">${campo.setoresBadge}</span>`;
+          }
+          
+          html += `<label class="form-label">${campo.label}${badgeHtml}</label>`;
+          
+          if (campo.tipo === 'text' || campo.tipo === 'number' || campo.tipo === 'date') {
+            html += `<input type="${campo.tipo}" class="form-control dynamic-input" name="${campo.label}">`;
+          } else if (campo.tipo === 'textarea') {
+            html += `<textarea class="form-control dynamic-input" name="${campo.label}" rows="2"></textarea>`;
+          } else if (campo.tipo === 'select') {
+            html += `<select class="form-select dynamic-input" name="${campo.label}">`;
+            html += `<option value="">Selecione...</option>`;
+            if (campo.opcoes) {
+              const arrayOpcoes = campo.opcoes.split(',');
+              arrayOpcoes.forEach(opt => {
+                const optTrim = opt.trim();
+                if(optTrim) html += `<option value="${optTrim}">${optTrim}</option>`;
+              });
+            } else {
+              html += `<option value="Sim">Sim</option><option value="Não">Não</option>`;
+            }
+            html += `</select>`;
+          }
+          
+          html += `</div>`;
+        });
+        container.innerHTML = html;
+      })
+      .withFailureHandler(function(erro) {
+        container.innerHTML = '<p class="text-danger small"><i class="bi bi-exclamation-triangle me-1"></i>Erro ao carregar campos: ' + erro + '</p>';
+      })
+      .buscarCamposFormulario(email);
+  }
+
+  function mascaraCPFAlfanumerico(event) {
+    let valor = event.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    valor = valor.substring(0, 11);
+    
+    if (valor.length > 9) {
+      event.target.value = valor.replace(/^([A-Z0-9]{3})([A-Z0-9]{3})([A-Z0-9]{3})([A-Z0-9]{1,2}).*/, '$1.$2.$3-$4');
+    } else if (valor.length > 6) {
+      event.target.value = valor.replace(/^([A-Z0-9]{3})([A-Z0-9]{3})([A-Z0-9]{1,3}).*/, '$1.$2.$3');
+    } else if (valor.length > 3) {
+      event.target.value = valor.replace(/^([A-Z0-9]{3})([A-Z0-9]{1,3}).*/, '$1.$2');
+    } else {
+      event.target.value = valor;
+    }
+  }
+
+  // Campos imutáveis: bloqueados após busca bem-sucedida (LGPD)
+  const CAMPOS_IMUTAVEIS = ['inputCpf', 'inputNome', 'inputRg', 'inputNascimento', 'inputIdade'];
+  // Campos mutáveis: podem ser desbloqueados pelo botão lápis
+  const CAMPOS_MUTAVEIS  = ['tel_fixo', 'tel_celular', 'cep_vitima', 'rua_vitima', 'num_vitima', 'bairro_vitima',
+                            'inputEscolaridade', 'inputRenda', 'inputBolsa', 'inputBpc', 'inputMoradia'];
+
+  function _bloquearTudo() {
+    [...CAMPOS_IMUTAVEIS, ...CAMPOS_MUTAVEIS].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.readOnly = true;
+      if (el.tagName === 'SELECT') el.disabled = true;
+    });
+  }
+
+  function _liberarTudo() {
+    [...CAMPOS_IMUTAVEIS, ...CAMPOS_MUTAVEIS].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.readOnly = false;
+      el.disabled = false;
+    });
+    // Limpa avisos LGPD se existirem
+    document.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
+  }
+
+  function habilitarEdicaoVitima() {
+    CAMPOS_MUTAVEIS.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.readOnly = false;
+      el.disabled = false;
+    });
+    // Mantém os imutáveis bloqueados
+    Swal.fire({ title: 'Edição Habilitada', text: 'Você pode atualizar contato, endereço e perfil socioeconômico. Dados de identidade são protegidos.', icon: 'info', timer: 3000, showConfirmButton: false });
+  }
+
+  function calcularIdadeVitima() {
+    const dataNasc = document.getElementById('inputNascimento').value;
+    if (!dataNasc) {
+      document.getElementById('inputIdade').value = '';
+      return;
+    }
+    const hoje = new Date();
+    const nascimento = new Date(dataNasc);
+    let idade = hoje.getFullYear() - nascimento.getFullYear();
+    const m = hoje.getMonth() - nascimento.getMonth();
+    if (m < 0 || (m === 0 && hoje.getDate() < nascimento.getDate() + 1)) {
+      idade--;
+    }
+    document.getElementById('inputIdade').value = idade >= 0 ? idade : '';
+  }
+
+  function pesquisarCpf() {
+    const btn = document.getElementById('btnBuscarCpf');
+    const cpf = document.getElementById('inputCpf').value.trim();
+    const idVitimaOculto = document.getElementById('idVitimaOculto');
+
+    if (!cpf) { Swal.fire('Atenção', 'Informe o CPF.', 'warning'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    document.getElementById('inputNome').value = 'Buscando...';
+
+    google.script.run
+      .withSuccessHandler(function(resultado) {
+        btn.disabled = false; btn.innerHTML = 'Buscar';
+
+        if (resultado) {
+          // --- VÍTIMA EXISTENTE ---
+          idVitimaOculto.value = resultado.idVitima;
+
+          // Limpa avisos antigos
+          document.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
+
+          // Preenche todos os campos
+          document.getElementById('inputNome').value = resultado.nome || '';
+          document.getElementById('inputNascimento').value = resultado.nascimento || '';
+          
+          // Mascara o RG (Ex: **.***.901-2)
+          let rgOriginal = resultado.rg || '';
+          let rgMascarado = rgOriginal.length > 4 ? `**.***.${rgOriginal.slice(-4)}` : rgOriginal;
+          document.getElementById('inputRg').value = rgMascarado;
+
+          // Adiciona avisos LGPD nos containers
+          const avisoHtml = `<small class="text-danger fw-bold d-block mt-1 aviso-lgpd"><i class="bi bi-lock-fill"></i> Dados protegidos pela LGPD</small>`;
+          document.getElementById('rg-container').insertAdjacentHTML('beforeend', avisoHtml);
+          document.getElementById('nascimento-container').insertAdjacentHTML('beforeend', avisoHtml);
+
+          document.getElementById('tel_fixo').value = resultado.tel_fixo || '';
+          document.getElementById('tel_celular').value = resultado.tel_celular || '';
+          document.getElementById('cep_vitima').value = resultado.cep || '';
+          document.getElementById('rua_vitima').value = resultado.logradouro || '';
+          document.getElementById('num_vitima').value = resultado.numero || '';
+          document.getElementById('bairro_vitima').value = resultado.bairro || '';
+          document.getElementById('inputEscolaridade').value = resultado.escolaridade || '';
+          document.getElementById('inputRenda').value = resultado.renda || '';
+          document.getElementById('inputBolsa').value = resultado.bolsa_familia || '';
+          document.getElementById('inputBpc').value = resultado.bpc || '';
+          document.getElementById('inputMoradia').value = resultado.moradia || '';
+          calcularIdadeVitima();
+
+          // Bloqueia TODOS os campos (fundo cinza da regra CSS)
+          _bloquearTudo();
+
+          Swal.fire({ title: 'Cadastro localizado!', text: `Dados de ${resultado.nome || 'Vítima'} carregados. Você pode atualizar contato, endereço e perfil socioeconômico.`, icon: 'success', timer: 3000, showConfirmButton: false });
+        } else {
+          // --- NOVA VÍTIMA ---
+          idVitimaOculto.value = 'NOVO';
+          document.getElementById('formAtendimento').reset();
+          document.getElementById('inputCpf').value = cpf; // restaura o CPF digitado
+          _liberarTudo();
+          Swal.fire({ title: 'Nova Vítima', text: 'CPF não encontrado. Preencha os dados para cadastro.', icon: 'info', timer: 3000, showConfirmButton: false });
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false; btn.innerHTML = 'Buscar';
+        document.getElementById('inputNome').value = '';
+        Swal.fire('Erro', String(erro), 'error');
+      })
+      .buscarVitimaPorCpf(cpf);
+  }
+
+  function enviarFormulario() {
+    const form = document.getElementById('formAtendimento');
+    
+    // Passo 4: Se a seção está oculta (fluxo de evolução), usa o CPF hidden
+    const cpfHidden = document.getElementById('cpf-evolucao-hidden').value;
+    const secaoOculta = document.getElementById('secao-dados-vitima').classList.contains('d-none');
+    if (secaoOculta && cpfHidden) {
+      document.getElementById('inputCpf').value = cpfHidden;
+    }
+    
+    if (!document.getElementById('idVitimaOculto').value) {
+      Swal.fire('Atenção', 'Não foi possível identificar a vítima. Tente novamente.', 'warning'); return;
+    }
+
+    const btn = document.getElementById('btnSalvarAtendimento');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Salvando...';
+
+    // Coleta TODOS os campos do form (fixos + dinâmicos gerados pelo motor)
+    const dadosObj = { 
+      'Órgão de Origem': window.usuarioAtual.setor,
+      '_usuarioLogado': window.usuarioAtual.nome || window.usuarioAtual.email
+    };
+    
+    const formData = new FormData(form);
+    for (const [key, value] of formData.entries()) {
+      if (value) dadosObj[key] = value;
+    }
+    // Garante CPF mesmo com seção oculta
+    if (!dadosObj['CPF'] && cpfHidden) dadosObj['CPF'] = cpfHidden;
+
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Atendimento';
+        if (resposta.sucesso) {
+          // a) Fecha o modal programaticamente
+          const modalEl = document.getElementById('modalNovoAtendimento');
+          const modalInst = bootstrap.Modal.getInstance(modalEl);
+          if (modalInst) modalInst.hide();
+          
+          // b) Exibe alerta visual
+          Swal.fire({
+            title: 'Sucesso!',
+            text: 'Atendimento salvo com sucesso.',
+            icon: 'success',
+            timer: 2500,
+            showConfirmButton: false
+          });
+
+          // c) Atualiza a tela (Recarrega o histórico sem F5)
+          const cpfAtual = dadosObj['CPF'] || document.getElementById('inputCpf').value || document.getElementById('inputCpfProntuario').value;
+          if (cpfAtual) {
+            document.getElementById('inputCpfProntuario').value = cpfAtual;
+            pesquisarProntuarioHome();
+          }
+        } else {
+          Swal.fire('Erro', resposta.erro, 'error');
+        }
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Atendimento';
+        Swal.fire('Erro no servidor', String(e), 'error');
+      })
+      .salvarAtendimento(dadosObj);
+  }
+
+  // --- LÓGICA DE RASCUNHO E DATAS ---
+  function inicializarModalAtendimento() {
+    if(window.usuarioAtual && window.usuarioAtual.email) {
+      configurarFormularioDinamico(window.usuarioAtual.email);
+    }
+    
+    const hoje = new Date().toLocaleDateString('en-CA');
+    const inputDataCad = document.getElementById('data_cadastro');
+    const inputDataOco = document.getElementById('data_ocorrencia');
+    if(inputDataCad) inputDataCad.value = hoje;
+    if(inputDataOco && !inputDataOco.value) inputDataOco.value = hoje;
+
+    try {
+      const rascunho = JSON.parse(localStorage.getItem('rascunhoAtendimentoRPM') || '{}');
+      if (rascunho.relato) document.getElementById('inputRelato').value = rascunho.relato;
+      if (rascunho.data_ocorrencia) document.getElementById('data_ocorrencia').value = rascunho.data_ocorrencia;
+      if (rascunho.cpf) {
+        document.getElementById('inputCpf').value = rascunho.cpf;
+      }
+    } catch (e) {
+      console.warn("Erro ao recuperar rascunho", e);
+    }
+  }
+
+  function salvarRascunhoAtendimento() {
+    const dados = {
+      cpf: document.getElementById('inputCpf').value,
+      relato: document.getElementById('inputRelato').value,
+      data_ocorrencia: document.getElementById('data_ocorrencia').value
+    };
+    localStorage.setItem('rascunhoAtendimentoRPM', JSON.stringify(dados));
+  }
+
+  function confirmarFechamentoAtendimento() {
+    const temDados = document.getElementById('inputRelato').value.trim() !== '' || document.getElementById('inputCpf').value.trim() !== '';
+    
+    if (temDados) {
+      Swal.fire({
+        title: 'Tem certeza?',
+        text: "Os dados não salvos serão perdidos.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sim, fechar',
+        cancelButtonText: 'Continuar editando'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          fecharE_LimparModalAtendimento();
+        }
+      });
+    } else {
+      fecharE_LimparModalAtendimento();
+    }
+  }
+
+  function fecharE_LimparModalAtendimento() {
+    // d) Fechar o modal programaticamente
+    const modalEl = document.getElementById('modalNovoAtendimento');
+    const modalInst = bootstrap.Modal.getInstance(modalEl);
+    if (modalInst) modalInst.hide();
+  }
+
+  // Event Listener para garantir a limpeza total do modal após a animação de fechamento
+  document.addEventListener('DOMContentLoaded', function() {
+    const modalAtendimento = document.getElementById('modalNovoAtendimento');
+    if (modalAtendimento) {
+      modalAtendimento.addEventListener('hidden.bs.modal', function () {
+        // a) Reseta o formulário
+        document.getElementById('formAtendimento').reset();
+        document.getElementById('idVitimaOculto').value = "";
+        
+        // b) Remove bloqueios
+        const inputs = modalAtendimento.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+          input.readOnly = false;
+          input.disabled = false;
+        });
+        
+        // c) Remove avisos LGPD
+        modalAtendimento.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
+        
+        // d) Limpa CPF oculto
+        const cpfHidden = document.getElementById('cpf-evolucao-hidden');
+        if(cpfHidden) cpfHidden.value = '';
+        
+        // e) Garante visibilidade da seção da vítima
+        const secaoVitima = document.getElementById('secao-dados-vitima');
+        if(secaoVitima) secaoVitima.classList.remove('d-none');
+        
+        // Limpa rascunho
+        localStorage.removeItem('rascunhoAtendimentoRPM');
+      });
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('modalNovoAtendimento');
+    if (modalEl) {
+      modalEl.addEventListener('show.bs.modal', function () {
+        inicializarModalAtendimento();
+      });
+      
+      const formEl = document.getElementById('formAtendimento');
+      if(formEl) formEl.addEventListener('input', salvarRascunhoAtendimento);
+    }
+    configurarMascarasSanitizacao();
+  });
+
+  function configurarMascarasSanitizacao() {
+    const cpfBuscaHome = document.getElementById('inputCpfProntuario');
+    if (cpfBuscaHome) {
+      cpfBuscaHome.addEventListener('input', function() {
+        if (this.value.length === 14) {
+          pesquisarProntuarioHome();
+        }
+      });
+    }
+
+    const cpfBuscaModal = document.getElementById('inputCpf');
+    if (cpfBuscaModal) {
+      cpfBuscaModal.addEventListener('input', function() {
+        document.getElementById('idVitimaOculto').value = ""; // Força a buscar novamente se o CPF for alterado
+        if (this.value.length === 14) {
+          const inputNome = document.getElementById('inputNome');
+          if (inputNome) inputNome.focus();
+          pesquisarCpf();
+        }
+      });
+    }
+
+    const nomeInput = document.getElementById('inputNome');
+    if (nomeInput) {
+      nomeInput.addEventListener('input', function() {
+        this.value = this.value.replace(/[^a-zA-ZÀ-ÿ\s]/g, '');
+      });
+    }
+
+    const telFixo = document.getElementById('tel_fixo');
+    if (telFixo) {
+      telFixo.addEventListener('input', function() {
+        let valor = this.value.replace(/\D/g, '');
+        this.value = valor.replace(/^(\d{2})(\d{4})(\d{4}).*/, '($1) $2-$3');
+      });
+    }
+
+    const telCelular = document.getElementById('tel_celular');
+    if (telCelular) {
+      telCelular.addEventListener('input', function() {
+        let valor = this.value.replace(/\D/g, '');
+        this.value = valor.replace(/^(\d{2})(\d{5})(\d{4}).*/, '($1) $2-$3');
+      });
+    }
+
+    const rgInput = document.getElementById('inputRg');
+    if (rgInput) {
+      rgInput.addEventListener('input', function() {
+        let valor = this.value.replace(/[^0-9xX]/g, '').toUpperCase();
+        this.value = valor.replace(/^(\d{2})(\d{3})(\d{3})([\dX]).*/, '$1.$2.$3-$4');
+      });
+    }
+  }
+
+  function configurarEventosViaCep() {
+    try {
+      const cepInput = document.getElementById('cep_vitima');
+      if (cepInput) {
+        // Evita duplicar listeners
+        const cloneCep = cepInput.cloneNode(true);
+        cepInput.parentNode.replaceChild(cloneCep, cepInput);
+        
+        cloneCep.addEventListener('input', function(e) {
+          let valor = e.target.value.replace(/\D/g, '');
+          valor = valor.replace(/^(\d{5})(\d)/, '$1-$2');
+          e.target.value = valor;
+          
+          if (valor.length === 9) {
+            fetch("https://viacep.com.br/ws/" + valor.replace('-','') + "/json/")
+              .then(res => res.json())
+              .then(data => {
+                if (!data.erro) {
+                  const rua = document.getElementById('rua_vitima');
+                  const bairro = document.getElementById('bairro_vitima');
+                  if(rua) rua.value = data.logradouro || '';
+                  if(bairro) bairro.value = data.bairro || '';
+                }
+              })
+              .catch(err => console.error("Erro ViaCEP:", err));
+          }
+        });
+      }
+
+      let timeoutViaCep = null;
+      let ruasBuscadas = [];
+      const ruaInput = document.getElementById('rua_vitima');
+      if (ruaInput) {
+        const cloneRua = ruaInput.cloneNode(true);
+        ruaInput.parentNode.replaceChild(cloneRua, ruaInput);
+        
+        cloneRua.addEventListener('input', function(e) {
+          const texto = e.target.value;
+          const datalist = document.getElementById('lista-ruas');
+          
+          const selecionado = ruasBuscadas.find(r => r.logradouro === texto);
+          if (selecionado) {
+            const bairro = document.getElementById('bairro_vitima');
+            const cep = document.getElementById('cep_vitima');
+            if(bairro) bairro.value = selecionado.bairro;
+            if(cep) {
+              const cepFormatado = selecionado.cep.replace(/^(\d{5})(\d)/, '$1-$2');
+              cep.value = cepFormatado;
+            }
+            return;
+          }
+
+          clearTimeout(timeoutViaCep);
+          const cepAt = document.getElementById('cep_vitima');
+          if (texto.length >= 4 && (!cepAt || !cepAt.value)) {
+            timeoutViaCep = setTimeout(() => {
+              fetch("https://viacep.com.br/ws/SP/Votorantim/" + texto + "/json/")
+                .then(res => res.json())
+                .then(data => {
+                  if(datalist) datalist.innerHTML = '';
+                  if (Array.isArray(data)) {
+                    ruasBuscadas = data;
+                    data.forEach(rua => {
+                      const opt = document.createElement('option');
+                      opt.value = rua.logradouro;
+                      opt.textContent = "Bairro: " + rua.bairro + " - CEP: " + rua.cep;
+                      if(datalist) datalist.appendChild(opt);
+                    });
+                  }
+                })
+                .catch(err => console.error("Erro Autocomplete ViaCEP:", err));
+            }, 500);
+          }
+        });
+      }
+    } catch(err) {
+      console.warn("Erro ao configurar ViaCEP", err);
+    }
+  }
+
+  function limparTelaBusca() {
+    const inputCpf = document.getElementById('inputCpfProntuario');
+    if (inputCpf) inputCpf.value = '';
+    
+    const painel = document.getElementById('resultado-prontuario');
+    if (painel) painel.classList.add('d-none');
+    
+    const timeline = document.getElementById('timeline-atendimentos');
+    if (timeline) timeline.innerHTML = '';
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const inputCpfBusca = document.getElementById('inputCpfProntuario');
+    if (inputCpfBusca) {
+      inputCpfBusca.addEventListener('input', function(e) {
+        if (e.target.value.trim() === '') {
+          limparTelaBusca();
+        }
+      });
+    }
+  });
+
+  function pesquisarProntuarioHome() {
+    const btn = document.getElementById('btnBuscarProntuario');
+    const cpfInput = document.getElementById('inputCpfProntuario').value;
+    const cpfLimpo = cpfInput.replace(/\D/g, '');
+    const painel = document.getElementById('resultado-prontuario');
+    
+    if (cpfLimpo.length !== 11) {
+      Swal.fire('Atenção', 'Por favor, digite um CPF válido com 11 caracteres numéricos.', 'warning');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Buscando...';
+    painel.classList.add('d-none');
+    document.getElementById('timeline-atendimentos').innerHTML = '';
+
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if (!resposta) { 
+          Swal.fire('Erro Crítico', 'Resposta vazia do servidor. Verifique os logs do Apps Script.', 'error');
+          const loadingScreen = document.getElementById('loading-screen');
+          if (loadingScreen) loadingScreen.classList.add('d-none');
+          btn.disabled = false; btn.innerHTML = 'Buscar Histórico';
+          return; 
+        }
+
+        btn.disabled = false; btn.innerHTML = 'Buscar Histórico';
+        
+        if (resposta.status === 'erro') {
+          Swal.fire('Erro no Servidor', resposta.mensagem, 'error');
+          return;
+        }
+        
+        if (resposta.status === 'nao_encontrado') {
+          Swal.fire({
+            title: 'Vítima não localizada',
+            text: "Deseja iniciar um novo registo?",
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonColor: '#0d6efd',
+            confirmButtonText: 'Sim, Registar',
+            cancelButtonText: 'Cancelar'
+          }).then((result) => {
+            if (result.isConfirmed) {
+              const campoCpfRegistro = document.getElementById('inputCpf');
+              if (campoCpfRegistro) {
+                  campoCpfRegistro.value = cpfInput;
+              }
+              abrirNovoAtendimentoNormal();
+            }
+          });
+          return;
+        }
+
+        if (resposta.erro) { Swal.fire('Erro', resposta.erro, 'error'); return; }
+
+        document.getElementById('hist-nome').textContent = resposta.vitima.nome;
+        document.getElementById('hist-idade').textContent = resposta.vitima.idade;
+        document.getElementById('hist-bairro').textContent = resposta.vitima.bairro;
+        
+        const badgeMp = document.getElementById('hist-mp');
+        badgeMp.textContent = resposta.vitima.medidaProtetiva;
+        if(resposta.vitima.medidaProtetiva.includes('Concedida')) badgeMp.className = "badge bg-success";
+        else if(resposta.vitima.medidaProtetiva.includes('Solicitada')) badgeMp.className = "badge bg-warning text-dark";
+        else badgeMp.className = "badge bg-secondary";
+
+        const timeline = document.getElementById('timeline-atendimentos');
+        if (!resposta.historico || resposta.historico.length === 0) {
+          timeline.innerHTML = '<p class="text-muted ms-2 mt-2">Nenhum atendimento na rede.</p>';
+        } else {
+          let html = '';
+          resposta.historico.forEach(atend => {
+            const orgaoLow = atend.orgao.toLowerCase();
+            let bc = "bg-secondary";
+            if(orgaoLow.includes('pm') || orgaoLow.includes('militar')) bc = "bg-primary";
+            else if(orgaoLow.includes('saúde') || orgaoLow.includes('saude')) bc = "bg-success";
+            else if(orgaoLow.includes('casa da mulher')) bc = "bg-warning text-dark";
+            else if(orgaoLow.includes('gcm')) bc = "bg-info text-dark";
+            else if(orgaoLow.includes('pc') || orgaoLow.includes('civil')) bc = "bg-dark";
+            else if(orgaoLow.includes('cras') || orgaoLow.includes('creas')) bc = "bg-danger";
+
+            // Garante exibição de data+hora mesmo que o backend envie string ou número
+            let dataExibida = atend.data || 'Data N/I';
+            if (atend.dataRaw && atend.dataRaw > 0) {
+              try {
+                dataExibida = new Date(atend.dataRaw).toLocaleString('pt-BR', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit'
+                });
+              } catch(e) { dataExibida = atend.data || 'Data N/I'; }
+            }
+
+            // Exibe a observação livremente para a rede
+            let textoObservacao = atend.observacao || atend['Observação'] || atend.Observacao || atend.observacoes || "Sem observações registradas.";
+
+            html += `
+              <div class="card bg-white shadow-sm border mb-4 ms-2 position-relative rounded">
+                <div class="position-absolute" style="left: -1.75rem; top: 1.25rem;">
+                  <div class="rounded-circle bg-primary" style="width: 14px; height: 14px;"></div>
+                </div>
+                <div class="card-body p-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold text-primary"><i class="bi bi-calendar-event me-2"></i>` + dataExibida + `</span>
+                    <span class="badge rounded-pill ` + bc + ` fs-6 shadow-sm"><i class="bi bi-building me-1"></i>` + atend.orgao + `</span>
+                  </div>
+                  <h6 class="card-subtitle mb-2 mt-3 text-muted">Ações Resumo: ` + atend.acaoStatus + `</h6>
+                  <div class="bg-light p-3 mt-3 rounded border border-light">
+                    <p class="card-text small mb-0 text-dark"><strong>Observação:</strong><br>` + textoObservacao + `</p>
+                  </div>
+                </div>
+              </div>`;
+          });
+          timeline.innerHTML = html;
+        }
+        painel.classList.remove('d-none');
+        
+        // Controle de visibilidade do botão de Cadastro Completo (LGPD)
+        const btnCadastro = document.getElementById('btn-ver-cadastro-completo');
+        if (btnCadastro) {
+          const niveisPermitidos = ['admin', 'diretoria', 'secretario', 'secretário'];
+          const nivel = (window.usuarioAtual && window.usuarioAtual.nivelAcesso) ? window.usuarioAtual.nivelAcesso.toLowerCase() : '';
+          
+          if (niveisPermitidos.includes(nivel) || nivel === 'creas' || nivel === 'assistência social') {
+             btnCadastro.classList.remove('d-none');
+          } else {
+             btnCadastro.classList.add('d-none');
+          }
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false; btn.innerHTML = 'Buscar Histórico';
+        Swal.fire('Erro no servidor', String(erro), 'error');
+      })
+      .consultarProntuarioIntegrado(cpfLimpo, window.usuarioAtual.email);
+  }
+
+  function obterDataDeHojeFormatada() {
+      const hoje = new Date();
+      // Ajuste de fuso horário local para evitar que retorne o dia anterior à noite
+      const offset = hoje.getTimezoneOffset() * 60000;
+      const dataLocal = new Date(hoje.getTime() - offset);
+      return dataLocal.toISOString().split('T')[0];
+  }
+
+  function abrirNovoAtendimentoNormal() {
+    // Passo 3: Fluxo normal - garante que a seção Dados da Vítima esteja visível
+    document.getElementById('secao-dados-vitima').classList.remove('d-none');
+    document.getElementById('cpf-evolucao-hidden').value = '';
+    
+    // Auto-preenche a data de hoje se o campo estiver vazio
+    const campoDataAtendimento = document.getElementById('data_cadastro');
+    if (campoDataAtendimento && !campoDataAtendimento.value) {
+        campoDataAtendimento.value = obterDataDeHojeFormatada();
+    }
+
+    const modalEl = document.getElementById('modalNovoAtendimento');
+    const modalInst = new bootstrap.Modal(modalEl);
+    modalInst.show();
+  }
+
+  function abrirNovoAtendimentoComCpf(cpfCopia) {
+    // Passo 2: Fluxo via histórico - oculta Dados da Vítima e usa CPF hidden
+    const cpfBase = cpfCopia || document.getElementById('inputCpfProntuario').value;
+    
+    // Ocultar seção Dados da Vítima
+    document.getElementById('secao-dados-vitima').classList.add('d-none');
+    // Guardar CPF no campo hidden para ser usado ao salvar
+    document.getElementById('cpf-evolucao-hidden').value = cpfBase || '';
+    // Pré-preencher idVitimaOculto buscando pelo CPF no backend
+    document.getElementById('inputCpf').value = cpfBase || '';
+    
+    // Buscar o idVitima silenciosamente para vincular o atendimento
+    if (cpfBase) {
+      google.script.run
+        .withSuccessHandler(function(resultado) {
+          if (resultado) {
+            document.getElementById('idVitimaOculto').value = resultado.idVitima || '';
+          }
+        })
+        .buscarVitimaPorCpf(cpfBase);
+    }
+    
+    // Auto-preenche a data de hoje se o campo estiver vazio
+    const campoDataAtendimento = document.getElementById('data_cadastro');
+    if (campoDataAtendimento && !campoDataAtendimento.value) {
+        campoDataAtendimento.value = obterDataDeHojeFormatada();
+    }
+    
+    const modalEl = document.getElementById('modalNovoAtendimento');
+    const modalInst = new bootstrap.Modal(modalEl);
+    modalInst.show();
+  }
+
+  function abrirCadastroCompleto() {
+    const cpfBase = document.getElementById('inputCpfProntuario').value;
+    const modalEl = document.getElementById('modalCadastroVitima');
+    const modalInst = new bootstrap.Modal(modalEl);
+    modalInst.show();
+    
+    if (cpfBase) {
+      document.getElementById('cad_cpf').value = cpfBase;
+      setTimeout(() => {
+        pesquisarCpfCadastroCompleto();
+      }, 500);
+    }
+  }
+
+  function pesquisarCpfCadastroCompleto() {
+    const cpf = document.getElementById('cad_cpf').value.replace(/\D/g, '');
+    if (cpf.length !== 11) return;
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if(resposta) {
+           const v = resposta;
+           document.getElementById('cad_idVitima').value = v.idVitima || '';
+           document.getElementById('cad_nome').value = v.nome || '';
+           document.getElementById('cad_rg').value = v.rg || '';
+           
+           if(v.nascimento) {
+             try {
+               let d = new Date(v.nascimento);
+               let iso = d.toISOString().split('T')[0];
+               document.getElementById('cad_nascimento').value = iso;
+             } catch(e){
+                 document.getElementById('cad_nascimento').value = v.nascimento;
+             }
+           }
+           
+           document.getElementById('cad_tel_fixo').value = v.tel_fixo || '';
+           document.getElementById('cad_celular').value = v.tel_celular || '';
+           document.getElementById('cad_cep').value = v.cep || '';
+           document.getElementById('cad_rua').value = v.logradouro || '';
+           document.getElementById('cad_numero').value = v.numero || '';
+           document.getElementById('cad_bairro').value = v.bairro || '';
+           
+           document.getElementById('cad_escolaridade').value = v.escolaridade || '';
+           document.getElementById('cad_renda').value = v.renda || '';
+           document.getElementById('cad_bolsa').value = v.bolsa_familia || '';
+           document.getElementById('cad_bpc').value = v.bpc || '';
+           document.getElementById('cad_moradia').value = v.moradia || '';
+           
+           // Bloqueia todos os campos após preenchimento
+           const form = document.getElementById('formCadastroVitima');
+           const inputs = form.querySelectorAll('input');
+           const selects = form.querySelectorAll('select');
+           
+           inputs.forEach(input => {
+               if(input.id !== 'cad_cpf' && input.type !== 'hidden') {
+                   input.readOnly = true;
+               }
+           });
+           
+           selects.forEach(select => {
+               select.disabled = true;
+           });
+           
+           // Garante estado inicial dos botões
+           const btnEditar = document.getElementById('btnEditarCadastro');
+           const btnSalvar = document.getElementById('btnSalvarCadastro');
+           if (btnEditar) btnEditar.classList.remove('d-none');
+           if (btnSalvar) btnSalvar.classList.add('d-none');
+        }
+      })
+      .buscarVitimaPorCpf(cpf);
+  }
+
+  function habilitarEdicaoCadastro() {
+      const form = document.getElementById('formCadastroVitima');
+      const inputs = form.querySelectorAll('input');
+      const selects = form.querySelectorAll('select');
+      
+      inputs.forEach(input => {
+          if(input.id !== 'cad_cpf' && input.type !== 'hidden') {
+              input.readOnly = false;
+          }
+      });
+      
+      selects.forEach(select => {
+          select.disabled = false;
+      });
+      
+      const btnEditar = document.getElementById('btnEditarCadastro');
+      const btnSalvar = document.getElementById('btnSalvarCadastro');
+      if (btnEditar) btnEditar.classList.add('d-none');
+      if (btnSalvar) btnSalvar.classList.remove('d-none');
+  }
+
+  function salvarCadastroVitimaFront() {
+    const form = document.getElementById('formCadastroVitima');
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    const btn = document.getElementById('btnSalvarCadastro');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Salvando...';
+
+    const formData = new FormData(form);
+    const dadosObj = {};
+    formData.forEach((value, key) => { dadosObj[key] = value; });
+    // Pegar valor do input desabilitado manualmente
+    dadosObj['CPF'] = document.getElementById('cad_cpf').value;
+
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Cadastro';
+        
+        if (resposta.sucesso) {
+          Swal.fire('Sucesso', 'Cadastro da vítima atualizado.', 'success');
+          bootstrap.Modal.getInstance(document.getElementById('modalCadastroVitima')).hide();
+        } else {
+          Swal.fire('Erro', resposta.erro || 'Erro desconhecido.', 'error');
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Cadastro';
+        Swal.fire('Erro Crítico', String(erro), 'error');
+      })
+      .salvarEdicaoCadastroVitima(dadosObj);
+  }
+</script>

@@ -1,0 +1,100 @@
+<div id="dashboard-container" class="container mt-4 d-none">
+  <div class="row mb-4">
+    <div class="col-12 d-flex justify-content-between align-items-center">
+      <div>
+        <h3><i class="bi bi-pie-chart-fill me-2 text-primary"></i>Painel Gerencial</h3>
+        <p class="text-muted">Visão consolidada da atuação da Rede de Proteção.</p>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="carregarDashboard()"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button>
+    </div>
+  </div>
+
+  <!-- Área de Loading do Dash -->
+  <div id="dash-loading" class="text-center my-5 d-none">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2 text-muted">Calculando métricas da rede e plotando mapa...</p>
+  </div>
+
+  <div id="dash-content">
+    <!-- Barra de Filtros -->
+    <div class="card bg-white shadow-sm border-0 mb-4">
+      <div class="card-body py-3 d-flex flex-wrap align-items-center gap-3">
+        <div>
+          <label class="form-label small text-muted fw-bold mb-1">Ano</label>
+          <select id="filtro-ano" class="form-select form-select-sm" onchange="window.aplicarFiltrosDashboard()">
+            <!-- Preenchido via JS -->
+          </select>
+        </div>
+        <div>
+          <label class="form-label small text-muted fw-bold mb-1">De (Opcional)</label>
+          <input type="date" id="filtro-data-inicio" class="form-control form-control-sm" onchange="window.aplicarFiltrosDashboard()">
+        </div>
+        <div>
+          <label class="form-label small text-muted fw-bold mb-1">Até (Opcional)</label>
+          <input type="date" id="filtro-data-fim" class="form-control form-control-sm" onchange="window.aplicarFiltrosDashboard()">
+        </div>
+        <div class="ms-auto mt-2 mt-md-0 d-flex align-items-end">
+          <button class="btn btn-sm btn-outline-secondary" onclick="window.limparFiltrosDashboard()"><i class="bi bi-x-circle me-1"></i>Limpar Filtros</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-4">
+      <!-- Card Pequeno de Total -->
+      <div class="col-md-4 mb-3 mb-md-0">
+        <div class="card bg-white shadow-sm h-100 border-0">
+          <div class="card-body text-center d-flex flex-column justify-content-center py-4">
+            <div class="mb-3">
+                <h6 class="card-title text-muted text-uppercase fw-bold mb-2" style="font-size: 0.85rem;"><i class="bi bi-person-bounding-box me-2 text-primary"></i>Vítimas Atendidas</h6>
+                <h2 class="display-4 fw-bold text-primary mb-0" id="dash-vitimas">-</h2>
+            </div>
+            <div style="border-top: 1px dashed #dee2e6; margin: 10px 40px;"></div>
+            <div>
+                <h6 class="card-title text-muted text-uppercase fw-bold mb-2" style="font-size: 0.8rem;"><i class="bi bi-ui-checks-grid me-2 text-secondary"></i>Atendimentos na Rede</h6>
+                <h3 class="fw-bold text-secondary mb-0" id="dash-total">-</h3>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Gráfico de Calor (Mapa Leaflet) -->
+      <div class="col-md-8">
+        <div class="card bg-white shadow-sm h-100 border-0">
+          <div class="card-header bg-white border-0 pt-3 pb-0">
+            <h6 class="text-secondary fw-bold"><i class="bi bi-geo-alt-fill me-1 text-danger"></i>Mapa de Calor (Ocorrências)</h6>
+          </div>
+          <div class="card-body p-2">
+            <!-- Container do Mapa -->
+            <div id="mapa-calor" style="height: 300px; width: 100%; border-radius: 6px; z-index: 1;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row pb-5">
+      <!-- Gráfico de Linha/Barra (Evolução) -->
+      <div class="col-md-7 mb-3 mb-md-0">
+        <div class="card bg-white shadow-sm h-100 border-0">
+          <div class="card-header bg-white border-0 pt-3 pb-0">
+            <h6 class="text-secondary fw-bold"><i class="bi bi-bar-chart me-1"></i>Evolução de Atendimentos no Ano Atual</h6>
+          </div>
+          <div class="card-body">
+            <canvas id="graficoEvolucao" style="max-height: 250px; width: 100%;"></canvas>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Gráfico de Pizza (Órgãos) -->
+      <div class="col-md-5">
+        <div class="card bg-white shadow-sm h-100 border-0">
+          <div class="card-header bg-white border-0 pt-3 pb-0">
+            <h6 class="text-secondary fw-bold"><i class="bi bi-diagram-3 me-1"></i>Distribuição por Órgão</h6>
+          </div>
+          <div class="card-body d-flex justify-content-center align-items-center">
+            <canvas id="graficoOrgaos" style="max-height: 250px; width: 100%;"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

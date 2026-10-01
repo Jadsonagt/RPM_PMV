@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <base target="_top">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Leaflet.js para Mapas -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <?!= include('estilos'); ?>
+  </head>
+  <body>
+    <!-- TELA DE CARREGAMENTO -->
+    <div id="loading-screen" class="d-flex flex-column justify-content-center align-items-center vh-100">
+      <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Carregando...</span>
+      </div>
+      <h4 class="mt-3 text-secondary">Iniciando o Sistema...</h4>
+      <p class="text-muted">Verificando credenciais de acesso</p>
+    </div>
+
+    <!-- TELA DE LOGIN -->
+    <div id="login-screen" class="d-flex flex-column justify-content-center align-items-center vh-100 d-none bg-light">
+      <div class="card shadow border-0" style="width: 100%; max-width: 400px;">
+        <div class="card-body p-5">
+          <div class="text-center mb-4">
+            <img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" alt="Brasão Votorantim" style="height: 60px; object-fit: contain;">
+            <h4 class="mt-3" style="color: var(--azul-institucional);">Rede de Proteção</h4>
+            <p class="text-muted small">Acesso Restrito</p>
+          </div>
+          
+          <form id="formLogin" onsubmit="event.preventDefault(); efetuarLogin();">
+            <div class="mb-3">
+              <label class="form-label small fw-bold">E-mail Institucional</label>
+              <input type="email" id="login-email" class="form-control" required placeholder="Digite seu e-mail">
+            </div>
+            <div class="mb-4">
+              <label class="form-label small fw-bold">Código de Acesso</label>
+              <input type="password" id="login-senha" class="form-control" required placeholder="Digite a senha fornecida pelo Admin">
+            </div>
+            <button type="submit" id="btn-login" class="btn btn-primary w-100 py-2 fw-bold">
+              <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
+            </button>
+          </form>
+          
+          <div class="text-center mt-3 d-none" id="login-error">
+            <small class="text-danger fw-bold"><i class="bi bi-exclamation-triangle me-1"></i> <span id="login-error-msg"></span></small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAINEL PRINCIPAL -->
+    <div id="app-container" class="d-none">
+      
+      <!-- Navbar Institucional -->
+      <nav class="navbar navbar-expand-lg navbar-custom shadow-sm">
+        <div class="container-fluid">
+          <a class="navbar-brand d-flex align-items-center" style="cursor: pointer;" onclick="alternarAba(event, 'atendimentos')">
+            <img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" alt="Brasão Votorantim" style="height: 40px; width: auto; object-fit: contain; margin-right: 10px;">
+            <span class="brand-text">RPM Votorantim</span>
+          </a>
+          
+          <!-- Botões de Navegação (Tabs) -->
+          <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <i class="bi bi-list fs-1 text-secondary"></i>
+          </button>
+          
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto ms-lg-4 mb-2 mb-lg-0 mt-3 mt-lg-0">
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom active" id="btn-tab-atendimentos" style="cursor: pointer;" onclick="alternarAba(event, 'atendimentos')">Acolhimento</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-dashboard" style="cursor: pointer;" onclick="alternarAba(event, 'dashboard')">Painel Gerencial</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-usuarios" style="cursor: pointer;" onclick="alternarAba(event, 'usuarios')">Gestão de Usuários</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-setores" style="cursor: pointer;" onclick="alternarAba(event, 'setores')">Gestão de Setores</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-formularios" style="cursor: pointer;" onclick="alternarAba(event, 'formularios')">Config. Formulários</a>
+              </li>
+            </ul>
+          </div>
+          
+          <div class="d-flex align-items-center nav-user-info ms-auto mt-2 mt-lg-0">
+            <i class="bi bi-person-circle fs-3 me-2"></i>
+            <div class="d-flex flex-column lh-1 me-3">
+              <span id="nav-user-name" class="fw-bold" style="font-size: 0.9rem; color: var(--azul-institucional);">Carregando...</span>
+              <span id="nav-user-sector" class="small" style="font-size: 0.8rem;">---</span>
+            </div>
+            <button class="btn btn-sm btn-outline-danger" onclick="fazerLogout()" title="Sair da conta">
+              <i class="bi bi-box-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- ABA 1: ACOLHIMENTO E PRONTUÁRIO -->
+      <div id="aba-atendimentos" class="container mt-4">
+        
+        <div class="row mb-4">
+          <div class="col-md-7">
+            <h3>Operacional da Rede</h3>
+            <p class="text-muted">Acesso rápido ao prontuário integrado e registro de acolhimentos.</p>
+          </div>
+          <div class="col-md-5 text-md-end">
+            <button class="btn btn-primary shadow-sm" onclick="abrirNovoAtendimentoNormal()">
+              <i class="bi bi-plus-lg me-1"></i> Novo Prontuário
+            </button>
+          </div>
+        </div>
+        
+        <div class="row mb-4">
+          <div class="col-12">
+          
+            <!-- IDENTIDADE VISUAL DINÂMICA DO SETOR -->
+            <div id="identidade-setor" class="d-none mb-3 d-flex align-items-center p-3 rounded-3 shadow-sm" style="background-color: #fff; border-left: 5px solid #ccc;">
+              <img id="logo-setor-ativo" src="" style="height: 40px; margin-right: 15px;" class="d-none">
+              <h5 id="texto-setor-ativo" class="mb-0 text-muted">Bem-vindo</h5>
+            </div>
+            <!-- FIM IDENTIDADE VISUAL -->
+          
+            <div class="bg-white rounded-3 shadow-sm p-4 border-0">
+              <h5 class="card-title mb-3"><i class="bi bi-search me-2 text-primary"></i>Consulta de Prontuário Integrado</h5>
+              <p class="card-text text-muted small mb-3">Pesquise pelo CPF para verificar o histórico da vítima em toda a rede municipal.</p>
+              <div class="row g-2">
+                <div class="col-md-6 col-lg-5">
+                  <div class="input-group">
+                    <span class="input-group-text bg-light"><i class="bi bi-person-vcard"></i></span>
+                    <input type="text" class="form-control" id="inputCpfProntuario" maxlength="14" autocomplete="off" placeholder="XXX.XXX.XXX-XX" oninput="mascaraCPFAlfanumerico(event)">
+                    <button class="btn btn-primary" type="button" id="btnBuscarProntuario" onclick="pesquisarProntuarioHome()">
+                      Buscar Histórico
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="btn-limpar-busca" onclick="limparTelaBusca()">
+                      Limpar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="resultado-prontuario" class="d-none mt-4 mb-5">
+          <!-- Cabeçalho da Vítima -->
+          <div class="card bg-white shadow-sm border-0 mb-4">
+            <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-md-center">
+              <div>
+                <h5 class="card-title text-primary mb-1"><i class="bi bi-person-lines-fill me-2"></i><span id="hist-nome"></span></h5>
+                <p class="card-text text-muted mb-0">
+                  <span class="me-3"><i class="bi bi-calendar3 me-1"></i> Idade: <span id="hist-idade" class="fw-bold text-dark"></span></span>
+                  <span class="me-3"><i class="bi bi-geo-alt me-1"></i> Bairro: <span id="hist-bairro" class="fw-bold text-dark"></span></span>
+                  <span><i class="bi bi-shield-check me-1"></i> MP: <span id="hist-mp" class="badge bg-secondary"></span></span>
+                </p>
+              </div>
+              <div class="mt-3 mt-md-0 d-flex gap-2">
+                <button id="btn-ver-cadastro-completo" class="btn btn-outline-secondary btn-sm shadow-sm d-none" onclick="abrirCadastroCompleto()">
+                  <i class="bi bi-person-vcard me-1"></i> Ver Cadastro Completo
+                </button>
+                <button class="btn btn-outline-primary btn-sm shadow-sm" onclick="abrirNovoAtendimentoComCpf()">
+                  <i class="bi bi-plus-circle me-1"></i> Adicionar Evolução
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Linha do Tempo -->
+          <h5 class="mt-4 text-secondary mb-3"><i class="bi bi-clock-history me-2"></i>Histórico na Rede de Proteção</h5>
+          <div id="timeline-atendimentos" style="border-left: 3px solid #dee2e6; margin-left: 10px; padding-left: 20px; padding-bottom: 2rem;"></div>
+        </div>
+
+      </div>
+
+      <!-- ABA 2: DASHBOARD GERENCIAL (Oculto por padrão) -->
+      <?!= include('dashboard'); ?>
+
+      <!-- ABA 3: GESTÃO DE USUÁRIOS (Oculto por padrão) -->
+      <?!= include('admin-usuarios'); ?>
+    </div> <!-- Fim App Container -->
+    
+    <!-- MODAL NOVO ATENDIMENTO -->
+    <div class="modal fade" id="modalNovoAtendimento" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-light">
+            <h5 class="modal-title text-primary"><i class="bi bi-journal-plus me-2"></i>Registrar Novo Atendimento</h5>
+            <button type="button" class="btn-close" aria-label="Fechar" onclick="confirmarFechamentoAtendimento()"></button>
+          </div>
+          <div class="modal-body">
+            <form id="formAtendimento">
+              <input type="hidden" id="idVitimaOculto" name="ID_Vitima" value="">
+              <input type="hidden" id="cpf-evolucao-hidden" value="">
+              
+              <!-- SEÇÃO FIXA - ocultada quando aberta via evolução do histórico -->
+              <div id="secao-dados-vitima">
+                <h6 class="fw-bold text-secondary mt-4 mb-3 border-bottom pb-2">Dados da Vítima</h6>
+                <div class="row g-3 mb-3">
+                  <!-- CPF + Botões -->
+                  <div class="col-md-5">
+                    <label class="form-label text-muted fw-semibold">CPF da Vítima</label>
+                    <div class="input-group">
+                      <input type="text" class="form-control" id="inputCpf" name="CPF" maxlength="14" autocomplete="off" placeholder="XXX.XXX.XXX-XX" oninput="mascaraCPFAlfanumerico(event)">
+                      <button class="btn btn-outline-secondary" type="button" id="btnBuscarCpf" onclick="pesquisarCpf()">Buscar</button>
+                      <button class="btn btn-outline-primary" type="button" onclick="habilitarEdicaoVitima()" title="Habilitar Edição dos Dados da Vítima"><i class="bi bi-pencil"></i></button>
+                    </div>
+                  </div>
+                  <!-- Nome -->
+                  <div class="col-md-7">
+                    <label class="form-label text-muted fw-semibold">Nome</label>
+                    <input type="text" class="form-control" id="inputNome" name="Nome" placeholder="Nome completo">
+                  </div>
+                  <!-- RG / Nascimento / Idade -->
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">RG</label>
+                    <div id="rg-container">
+                      <input type="text" class="form-control" id="inputRg" name="RG" maxlength="14">
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Data de Nascimento</label>
+                    <div id="nascimento-container">
+                      <input type="date" class="form-control" id="inputNascimento" name="Data de Nascimento" oninput="calcularIdadeVitima()">
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Idade</label>
+                    <input type="text" class="form-control bg-light" id="inputIdade" name="Idade" readonly>
+                  </div>
+                  <!-- Telefones -->
+                  <div class="col-md-3">
+                    <label class="form-label text-muted fw-semibold">Telefone Fixo</label>
+                    <input type="text" class="form-control" id="tel_fixo" name="Telefone Fixo" maxlength="14" placeholder="(XX) XXXX-XXXX">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label text-muted fw-semibold">Celular / WhatsApp</label>
+                    <input type="text" class="form-control" id="tel_celular" name="Celular / WhatsApp" maxlength="15" placeholder="(XX) XXXXX-XXXX">
+                  </div>
+                  <!-- CEP / Endereço -->
+                  <div class="col-md-2">
+                    <label class="form-label text-muted fw-semibold">CEP</label>
+                    <input type="text" class="form-control" id="cep_vitima" name="CEP" maxlength="9">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Logradouro / Rua</label>
+                    <input type="text" class="form-control" id="rua_vitima" name="Logradouro" list="lista-ruas">
+                    <datalist id="lista-ruas"></datalist>
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label text-muted fw-semibold">Número</label>
+                    <input type="text" class="form-control" id="num_vitima" name="Número">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Bairro</label>
+                    <input type="text" class="form-control" id="bairro_vitima" name="Bairro">
+                  </div>
+                  <!-- Perfil Socioeconômico -->
+                  <div class="col-12 mt-4 mb-2 border-bottom pb-2">
+                    <h6 class="fw-bold text-secondary mb-0">Perfil Socioeconômico</h6>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Escolaridade</label>
+                    <select class="form-select" id="inputEscolaridade" name="Escolaridade">
+                      <option value="">Selecione...</option>
+                      <option value="Fundamental Incompleto">Fundamental Incompleto</option>
+                      <option value="Fundamental Completo">Fundamental Completo</option>
+                      <option value="Médio Incompleto">Médio Incompleto</option>
+                      <option value="Médio Completo">Médio Completo</option>
+                      <option value="Superior">Superior</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Renda Familiar</label>
+                    <select class="form-select" id="inputRenda" name="Renda Familiar">
+                      <option value="">Selecione...</option>
+                      <option value="Sem Renda">Sem Renda</option>
+                      <option value="Até 1 Salário">Até 1 Salário</option>
+                      <option value="De 1 a 3 Salários">De 1 a 3 Salários</option>
+                      <option value="Mais de 3 Salários">Mais de 3 Salários</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Bolsa Família</label>
+                    <select class="form-select" id="inputBolsa" name="Bolsa Família">
+                      <option value="">Selecione...</option>
+                      <option value="Sim">Sim</option>
+                      <option value="Não">Não</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">BPC</label>
+                    <select class="form-select" id="inputBpc" name="BPC">
+                      <option value="">Selecione...</option>
+                      <option value="Sim">Sim</option>
+                      <option value="Não">Não</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Moradia</label>
+                    <select class="form-select" id="inputMoradia" name="Moradia">
+                      <option value="">Selecione...</option>
+                      <option value="Própria">Própria</option>
+                      <option value="Aluguel">Aluguel</option>
+                      <option value="Social">Social</option>
+                    </select>
+                  </div>
+                  <!-- Data do Atendimento e Relato -->
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Data do Atendimento</label>
+                    <input type="date" class="form-control bg-light" id="data_cadastro" name="data_cadastro">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label text-muted fw-semibold">Relato / Observações</label>
+                    <textarea class="form-control" id="inputRelato" name="Relato/Observações" rows="3" required></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SEÇÕES DINÂMICAS (Geradas pelo Motor de Formulários) -->
+              <h6 class="fw-bold text-secondary mt-4 mb-3 border-bottom pb-2">Informações Específicas do Órgão</h6>
+              <div id="campos-dinamicos-container" class="row g-3">
+                <p class="text-muted small"><i class="bi bi-info-circle me-1"></i>Os campos específicos do seu órgão serão carregados automaticamente.</p>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="confirmarFechamentoAtendimento()">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btnSalvarAtendimento" onclick="enviarFormulario()">
+              <i class="bi bi-save me-1"></i> Salvar Atendimento
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+      <!-- MODAL CADASTRO COMPLETO VÍTIMA -->
+      <div class="modal fade" id="modalCadastroVitima" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header bg-light">
+              <h5 class="modal-title text-primary"><i class="bi bi-person-vcard me-2"></i>Cadastro Completo da Vítima</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+              <form id="formCadastroVitima">
+                <input type="hidden" id="cad_idVitima" name="ID_Vitima" value="">
+                
+                <h6 class="text-secondary border-bottom pb-2 mb-3">Identificação Básica</h6>
+                <div class="row g-2 mb-4">
+                  <div class="col-md-5">
+                    <label class="form-label small">CPF da Vítima</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_cpf" name="CPF" maxlength="14" oninput="mascaraCPFAlfanumerico(event)" required disabled>
+                  </div>
+                  <div class="col-md-7">
+                    <label class="form-label small">Nome</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_nome" name="Nome" required>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">RG</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_rg" name="RG" maxlength="14">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Nascimento</label>
+                    <input type="date" class="form-control form-control-sm" id="cad_nascimento" name="Data de Nascimento">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Telefone Fixo</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_tel_fixo" name="Telefone Fixo" maxlength="14">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Celular / WhatsApp</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_celular" name="Celular / WhatsApp" maxlength="15">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">CEP</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_cep" name="CEP" maxlength="9">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Endereço / Rua</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_rua" name="Logradouro">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label small">Número</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_numero" name="Número">
+                  </div>
+                  <div class="col-md-5">
+                    <label class="form-label small">Bairro</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_bairro" name="Bairro">
+                  </div>
+                </div>
+
+                <h6 class="text-secondary border-bottom pb-2 mb-3">Perfil Socioeconômico</h6>
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label small">Escolaridade</label>
+                    <select class="form-select form-select-sm" id="cad_escolaridade" name="Escolaridade">
+                      <option value="">Selecione...</option>
+                      <option value="Fundamental Incompleto">Fundamental Incompleto</option>
+                      <option value="Fundamental Completo">Fundamental Completo</option>
+                      <option value="Médio Incompleto">Médio Incompleto</option>
+                      <option value="Médio Completo">Médio Completo</option>
+                      <option value="Superior">Superior</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Renda Familiar</label>
+                    <select class="form-select form-select-sm" id="cad_renda" name="Renda Familiar">
+                      <option value="">Selecione...</option>
+                      <option value="Sem Renda">Sem Renda</option>
+                      <option value="Até 1 Salário">Até 1 Salário</option>
+                      <option value="De 1 a 3 Salários">De 1 a 3 Salários</option>
+                      <option value="Mais de 3 Salários">Mais de 3 Salários</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Bolsa Família</label>
+                    <select class="form-select form-select-sm" id="cad_bolsa" name="Bolsa Família">
+                      <option value="">Selecione...</option>
+                      <option value="Sim">Sim</option>
+                      <option value="Não">Não</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">BPC</label>
+                    <select class="form-select form-select-sm" id="cad_bpc" name="BPC">
+                      <option value="">Selecione...</option>
+                      <option value="Sim">Sim</option>
+                      <option value="Não">Não</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Moradia</label>
+                    <select class="form-select form-select-sm" id="cad_moradia" name="Moradia">
+                      <option value="">Selecione...</option>
+                      <option value="Própria">Própria</option>
+                      <option value="Aluguel">Aluguel</option>
+                      <option value="Social">Social</option>
+                    </select>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <div class="modal-footer bg-light">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+              <button id="btnEditarCadastro" type="button" class="btn btn-outline-secondary" onclick="habilitarEdicaoCadastro()">
+                <i class="bi bi-pencil"></i> Editar
+              </button>
+              <button type="button" class="btn btn-primary d-none" id="btnSalvarCadastro" onclick="salvarCadastroVitimaFront()">
+                <i class="bi bi-save me-1"></i> Salvar Cadastro
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <?!= include('scripts'); ?>
+    <?!= include('dashboard-scripts'); ?>
+    <?!= include('admin-usuarios-scripts'); ?>
+  </body>
+</html>

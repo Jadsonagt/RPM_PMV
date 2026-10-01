@@ -1,0 +1,230 @@
+<script>
+  let chartOrgaos = null;
+  let chartEvolucao = null;
+  window.mapaLeaflet = null;
+  window.heatLayer = null;
+  window.dashDadosBrutos = [];
+
+  const coordsBairros = {
+    'Centro': [-23.5365, -47.4381], 'Vila Nova': [-23.5385, -47.4350], 'Jardim Paulista': [-23.5410, -47.4420],
+    'Itapeva': [-23.5250, -47.4200], 'Pró-Morar': [-23.5450, -47.4500], 'Parque Bela Vista': [-23.5300, -47.4450],
+    'Jardim Clarice': [-23.5500, -47.4480], 'Rio Acima': [-23.5200, -47.4100], 'Vila Garcia': [-23.5600, -47.4600],
+    'Jardim São Lucas': [-23.5480, -47.4560], 'Jardim Tatian': [-23.5420, -47.4600], 'Parque Jataí': [-23.5520, -47.4300],
+    'Vila Domingues': [-23.5340, -47.4310], 'Vila Nova Votorantim': [-23.5370, -47.4350], 'Mirante dos Óvnis': [-23.5550, -47.4500]
+  };
+
+  const nomeMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+  function normalizar(texto) {
+    if (!texto) return '';
+    return String(texto).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  }
+
+  function preencherFiltroAno() {
+      const select = document.getElementById('filtro-ano');
+      if(!select) return;
+      select.innerHTML = '<option value="">Todos</option>';
+      const anos = new Set();
+      window.dashDadosBrutos.forEach(d => {
+          if(d.data) {
+              anos.add(new Date(d.data).getFullYear());
+          }
+      });
+      const anoAtual = new Date().getFullYear();
+      if(anos.size === 0) anos.add(anoAtual);
+      Array.from(anos).sort().reverse().forEach(ano => {
+          select.innerHTML += `<option value="${ano}" ${ano === anoAtual ? 'selected' : ''}>${ano}</option>`;
+      });
+  }
+
+  function carregarDashboard() {
+    const niveisPainel = ['admin', 'diretoria', 'secretarios', 'secretario', 'secretário'];
+    const nivelUsuario = (window.usuarioAtual && window.usuarioAtual.nivelAcesso) ? String(window.usuarioAtual.nivelAcesso).trim().toLowerCase() : '';
+    
+    if (!niveisPainel.includes(nivelUsuario)) {
+        Swal.fire('Acesso Negado', 'Acesso Negado: Apenas gestores podem visualizar o Dashboard Gerencial.', 'warning');
+        alternarAba('atendimentos');
+        return;
+    }
+
+    const loadingUI = document.getElementById('dash-loading');
+    const contentUI = document.getElementById('dash-content');
+    loadingUI.classList.remove('d-none');
+    contentUI.classList.add('d-none');
+
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        loadingUI.classList.add('d-none');
+        if (resposta.erro) {
+          Swal.fire('Acesso Negado', resposta.erro, 'warning');
+          alternarAba('atendimentos');
+          return;
+        }
+
+        contentUI.classList.remove('d-none');
+        window.dashDadosBrutos = resposta.dadosBrutos || [];
+        preencherFiltroAno();
+        window.aplicarFiltrosDashboard();
+      })
+      .withFailureHandler(function(erro) {
+        loadingUI.classList.add('d-none');
+        Swal.fire('Erro no Servidor', 'Falha ao processar os dados gerenciais.', 'error');
+      })
+      .obterDadosDashboard(window.usuarioAtual ? window.usuarioAtual.email : '');
+  }
+
+  window.limparFiltrosDashboard = function() {
+      document.getElementById('filtro-ano').value = new Date().getFullYear();
+      document.getElementById('filtro-data-inicio').value = '';
+      document.getElementById('filtro-data-fim').value = '';
+      window.aplicarFiltrosDashboard();
+  };
+
+  window.aplicarFiltrosDashboard = function(params = {}) {
+      const anoSelect = document.getElementById('filtro-ano').value;
+      const dataInicio = document.getElementById('filtro-data-inicio').value;
+      const dataFim = document.getElementById('filtro-data-fim').value;
+      const mesEspecifico = params.mesEspecifico; // vindo do clique no grafico
+
+      let dadosParaGraficoBarras = window.dashDadosBrutos;
+      
+      // Filtra por Ano, Inicio, Fim
+      let dadosFiltrados = window.dashDadosBrutos.filter(item => {
+          if(!item.data) return false;
+          const d = new Date(item.data);
+          
+          if(anoSelect && d.getFullYear().toString() !== anoSelect) return false;
+          
+          if(dataInicio) {
+              // Ajusta fuso horário local para ignorar hora e focar na data selecionada
+              const start = new Date(dataInicio + 'T00:00:00');
+              if(d < start) return false;
+          }
+          if(dataFim) {
+              const end = new Date(dataFim + 'T23:59:59');
+              if(d > end) return false;
+          }
+          return true;
+      });
+
+      // Se filtrou por ano/data, o gráfico de barras usa esse filtro
+      dadosParaGraficoBarras = dadosFiltrados;
+
+      // Se clicou no mês, o filtro das outras coisas é ainda mais restrito
+      if(mesEspecifico && mesEspecifico !== 'Todos') {
+          dadosFiltrados = dadosFiltrados.filter(item => {
+              const d = new Date(item.data);
+              return nomeMeses[d.getMonth()] === mesEspecifico;
+          });
+      }
+
+      atualizarCards(dadosFiltrados);
+      atualizarGraficoPizza(dadosFiltrados);
+      atualizarMapaDeCalor(dadosFiltrados);
+      
+      // O grafico de evolução SEMPRE mostra todos os meses do ano filtrado (não apenas o mesEspecifico, senao a barra some)
+      atualizarGraficoEvolucao(dadosParaGraficoBarras);
+  };
+
+  function atualizarCards(dados) {
+      const vitimas = new Set();
+      dados.forEach(d => { if(d.idVitima) vitimas.add(d.idVitima); });
+      document.getElementById('dash-vitimas').textContent = vitimas.size;
+      document.getElementById('dash-total').textContent = dados.length;
+  }
+
+  function atualizarGraficoPizza(dados) {
+      if (chartOrgaos) chartOrgaos.destroy();
+      const contagem = {};
+      dados.forEach(d => {
+          let orgao = d.orgao || 'Não Informado';
+          contagem[orgao] = (contagem[orgao] || 0) + 1;
+      });
+
+      const ctxOrgaos = document.getElementById('graficoOrgaos').getContext('2d');
+      const backgroundColors = ['#0d6efd', '#198754', '#ffc107', '#0dcaf0', '#d63384', '#6610f2', '#fd7e14'];
+
+      chartOrgaos = new Chart(ctxOrgaos, {
+          type: 'doughnut',
+          data: {
+              labels: Object.keys(contagem),
+              datasets: [{
+                  data: Object.values(contagem),
+                  backgroundColor: backgroundColors.slice(0, Object.keys(contagem).length),
+                  borderWidth: 1
+              }]
+          },
+          options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+  }
+
+  function atualizarGraficoEvolucao(dados) {
+      if (chartEvolucao) chartEvolucao.destroy();
+      const contagem = {};
+      nomeMeses.forEach(m => contagem[m] = 0);
+
+      dados.forEach(d => {
+          if(d.data) {
+              const mes = nomeMeses[new Date(d.data).getMonth()];
+              contagem[mes]++;
+          }
+      });
+
+      const ctxEvolucao = document.getElementById('graficoEvolucao').getContext('2d');
+      chartEvolucao = new Chart(ctxEvolucao, {
+          type: 'bar',
+          data: {
+              labels: Object.keys(contagem),
+              datasets: [{
+                  label: 'Atendimentos Realizados',
+                  data: Object.values(contagem),
+                  backgroundColor: '#0d6efd',
+                  borderRadius: 4
+              }]
+          },
+          options: {
+              responsive: true,
+              scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+              plugins: { legend: { display: false } },
+              onClick: (event, elements, chart) => {
+                  if (elements && elements.length > 0) {
+                      const mesClicado = chart.data.labels[elements[0].index];
+                      window.aplicarFiltrosDashboard({ mesEspecifico: mesClicado });
+                  } else {
+                      window.aplicarFiltrosDashboard();
+                  }
+              }
+          }
+      });
+  }
+
+  function atualizarMapaDeCalor(dados) {
+      if (!window.mapaLeaflet) {
+          window.mapaLeaflet = L.map('mapa-calor').setView([-23.5365, -47.4381], 13);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19, attribution: '© OpenStreetMap'
+          }).addTo(window.mapaLeaflet);
+      }
+
+      if (window.heatLayer) window.mapaLeaflet.removeLayer(window.heatLayer);
+
+      let heatData = [];
+      dados.forEach(item => {
+          let bairroPlanilha = normalizar(item.bairro);
+          if(!bairroPlanilha) return;
+          
+          let keyEncontrada = Object.keys(coordsBairros).find(k => {
+              let bDict = normalizar(k);
+              return bairroPlanilha === bDict || bairroPlanilha.includes(bDict) || bDict.includes(bairroPlanilha);
+          });
+          if (keyEncontrada) {
+              let [lat, lng] = coordsBairros[keyEncontrada];
+              heatData.push([lat, lng, 10]);
+          }
+      });
+
+      window.heatLayer = L.heatLayer(heatData, {radius: 25, blur: 15, maxZoom: 15}).addTo(window.mapaLeaflet);
+      
+      setTimeout(() => { window.mapaLeaflet.invalidateSize(); }, 400);
+  }
+</script>

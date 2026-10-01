@@ -1,0 +1,338 @@
+<!-- ABA 3: GESTÃO DE USUÁRIOS (Apenas Admin) -->
+<div id="usuarios-container" class="container mt-4 d-none">
+  
+  <div class="row mb-4">
+    <div class="col-md-8">
+      <h3><i class="bi bi-people-fill me-2 text-primary"></i>Gestão de Usuários</h3>
+      <p class="text-muted">Controle de acesso dos servidores à plataforma integrada.</p>
+    </div>
+    <div class="col-md-4 text-md-end">
+      <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoUsuario">
+        <i class="bi bi-person-plus-fill me-1"></i> Cadastrar Servidor
+      </button>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="card-body p-0 table-responsive">
+      <table class="table table-hover table-striped mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Setor / Órgão</th>
+            <th>Nível de Acesso</th>
+            <th>Senha de Acesso</th>
+            <th class="text-end" style="min-width: 100px;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-usuarios-body">
+          <tr><td colspan="6" class="text-center py-4 text-muted">Carregando usuários...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVO USUÁRIO -->
+<div class="modal fade" id="modalNovoUsuario" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-person-badge me-2"></i>Novo Servidor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formUsuario">
+          <div class="mb-3">
+            <label class="form-label">Nome Completo</label>
+            <input type="text" class="form-control" name="nome" id="input-usuario-nome" required placeholder="Ex: Maria da Silva">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">E-mail Institucional (Google)</label>
+            <input type="email" class="form-control" name="email" id="input-usuario-email" required placeholder="email@gmail.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Setor / Órgão</label>
+            <select class="form-select" name="setor" id="select-setor-modal" required>
+              <option value="">Carregando setores...</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nível de Acesso</label>
+            <select class="form-select" name="nivel" id="input-usuario-nivel" required>
+              <option value="">Selecione...</option>
+              <option value="Usuário">Usuário (Padrão)</option>
+              <option value="Admin">Admin</option>
+              <option value="Diretoria">Diretoria</option>
+              <option value="Secretario">Secretário(a)</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Senha de Acesso</label>
+            <input type="text" class="form-control" name="senha" id="input-usuario-senha" placeholder="Deixada em branco, será gerada automaticamente.">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarUsuario" onclick="salvarNovoUsuarioFrontend()">
+          <i class="bi bi-check-lg me-1"></i> Salvar Usuário
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ABA 4: GESTÃO DE SETORES (Apenas Admin) -->
+<div id="setores-container" class="container mt-4 d-none">
+  
+  <div class="row mb-4">
+    <div class="col-md-8">
+      <h3><i class="bi bi-building me-2 text-primary"></i>Gestão de Setores / Órgãos</h3>
+      <p class="text-muted">Gerencie a identidade visual e os órgãos vinculados à rede.</p>
+    </div>
+    <div class="col-md-4 text-md-end">
+      <div class="d-flex align-items-center justify-content-md-end gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="carregarTabelaSetores()"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button>
+        <button class="btn btn-primary btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoSetor">
+          <i class="bi bi-plus-lg me-1"></i> Novo Setor
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="card-body p-0 table-responsive">
+      <table class="table table-hover table-striped mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Órgão / Setor</th>
+            <th>Cor Tema</th>
+            <th>Logomarca</th>
+            <th class="text-end" style="min-width: 130px;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-setores-body">
+          <tr><td colspan="4" class="text-center py-4 text-muted">Carregando setores...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR SETOR -->
+<div class="modal fade" id="modalEditarSetor" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-pencil-square me-2"></i>Editar Setor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formEditarSetor">
+          <div class="mb-3">
+            <label class="form-label">Nome do Setor (Chave - Não editável)</label>
+            <input type="text" class="form-control" name="nome" id="edit-setor-nome" readonly disabled style="background-color: #e9ecef;">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Cor Tema</label>
+            <input type="color" class="form-control form-control-color w-100" name="cor" id="edit-setor-cor" value="#1A365D" title="Escolha a cor do setor">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">URL da Logo (Opcional)</label>
+            <input type="url" class="form-control" name="logo" id="edit-setor-logo" placeholder="https://site.com/logo.png">
+            <div class="form-text">Link público para a imagem da logomarca do setor.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarEdicaoSetor" onclick="salvarEdicaoSetorFrontend()">
+          <i class="bi bi-check-lg me-1"></i> Salvar Alterações
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVO SETOR -->
+<div class="modal fade" id="modalNovoSetor" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-building-add me-2"></i>Novo Setor/Órgão</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formNovoSetor">
+          <div class="mb-3">
+            <label class="form-label">Nome do Setor / Órgão</label>
+            <input type="text" class="form-control" name="nome" required placeholder="Ex: CRAS Centro">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Cor Tema (Hexadecimal)</label>
+            <input type="color" class="form-control form-control-color w-100" name="cor" value="#0d6efd" title="Escolha a cor do setor" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">URL da Logo (Opcional)</label>
+            <input type="url" class="form-control" name="logo" placeholder="https://site.com/logo.png">
+            <div class="form-text">Link público para a imagem da logomarca do setor.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarNovoSetor" onclick="salvarNovoSetorFrontend()">
+          <i class="bi bi-check-lg me-1"></i> Salvar Setor
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VINCULAR CAMPOS DO SETOR -->
+<div class="modal fade" id="modalVincularCampos" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-ui-checks me-2"></i>Formulário: <span id="vincular-setor-nome-display" class="fw-bold text-dark"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="vincular-setor-nome">
+        <p class="text-muted small mb-3">Marque abaixo quais campos do Dicionário Global devem aparecer para os atendentes deste órgão.</p>
+        <div id="lista-campos-globais" class="border rounded p-3 bg-light d-flex flex-wrap gap-3">
+          <span class="text-muted">Carregando campos globais...</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarVinculos" onclick="salvarVinculosFrontend()">
+          <i class="bi bi-save me-1"></i> Salvar Formulário do Órgão
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ABA 5: CONFIGURAÇÃO DE FORMULÁRIOS (Apenas Admin) -->
+<div id="formularios-container" class="container mt-4 d-none">
+  
+  <div class="row mb-4">
+    <div class="col-md-7">
+      <h3><i class="bi bi-ui-checks-grid me-2 text-primary"></i>Motor de Formulários</h3>
+      <p class="text-muted">Configure os campos que cada órgão verá no formulário de atendimento.</p>
+    </div>
+    <div class="col-md-5 text-md-end">
+      <button class="btn btn-primary btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoCampo">
+        <i class="bi bi-plus-lg me-1"></i> Adicionar ao Dicionário
+      </button>
+    </div>
+  </div>
+
+  <div class="card shadow-sm border-0">
+    <div class="card-body p-0 table-responsive">
+      <table class="table table-hover table-striped mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Label (Pergunta)</th>
+            <th>ID Coluna</th>
+            <th>Tipo de Input</th>
+            <th>Status</th>
+            <th class="text-end" style="min-width: 100px;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tabela-campos-body">
+          <tr><td colspan="5" class="text-center py-4 text-muted">Carregando Dicionário Global...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVO CAMPO DE FORMULÁRIO -->
+<div class="modal fade" id="modalNovoCampo" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-input-cursor-text me-2"></i>Novo Campo no Formulário</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formNovoCampo">
+          <div class="mb-3">
+            <label class="form-label">Texto da Pergunta (Label)</label>
+            <input type="text" class="form-control" name="label" required placeholder="Ex: N° do Processo Judicial">
+            <div class="form-text">Este texto aparecerá como label do campo no formulário.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Tipo de Input</label>
+            <select class="form-select" name="tipo" id="select-tipo-novo" required onchange="toggleOpcoesNovo()">
+              <option value="">Selecione...</option>
+              <option value="text">Texto curto (text)</option>
+              <option value="number">Número (number)</option>
+              <option value="date">Data (date)</option>
+              <option value="textarea">Texto longo (textarea)</option>
+              <option value="select">Lista Suspensa (select)</option>
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="div-opcoes-novo">
+            <label class="form-label">Opções da Lista</label>
+            <input type="text" class="form-control" name="opcoes" id="input-opcoes-novo" placeholder="Ex: Sim, Não, Pendente">
+            <div class="form-text">Separe as opções por vírgula.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarNovoCampo" onclick="salvarNovoCampoFrontend()">
+          <i class="bi bi-check-lg me-1"></i> Criar Campo
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR CAMPO DE FORMULÁRIO -->
+<div class="modal fade" id="modalEditarCampo" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-pencil-square me-2"></i>Editar Campo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formEditarCampo">
+          <input type="hidden" name="idColuna" id="edit-campo-id">
+          
+          <div class="mb-3">
+            <label class="form-label">Texto da Pergunta (Label)</label>
+            <input type="text" class="form-control" name="label" id="edit-campo-label" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Tipo de Input</label>
+            <select class="form-select" name="tipo" id="edit-campo-tipo" required onchange="toggleOpcoesEditar()">
+              <option value="text">Texto curto (text)</option>
+              <option value="number">Número (number)</option>
+              <option value="date">Data (date)</option>
+              <option value="textarea">Texto longo (textarea)</option>
+              <option value="select">Lista Suspensa (select)</option>
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="div-opcoes-editar">
+            <label class="form-label">Opções da Lista</label>
+            <input type="text" class="form-control" name="opcoes" id="edit-campo-opcoes" placeholder="Ex: Sim, Não, Pendente">
+            <div class="form-text">Separe as opções por vírgula.</div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnSalvarEdicaoCampo" onclick="salvarEdicaoCampoFrontend()">
+          <i class="bi bi-check-lg me-1"></i> Salvar Alterações
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
