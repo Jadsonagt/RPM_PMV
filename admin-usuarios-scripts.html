@@ -42,7 +42,7 @@
       .withFailureHandler(function(erro) {
         tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Erro de comunicação: ${erro}</td></tr>`;
       })
-      .listarUsuariosDaBase();
+      .listarUsuariosDaBase(obterTokenSessao());
   }
 
   function salvarNovoUsuarioFrontend() {
@@ -68,8 +68,10 @@
         
         if (resposta.sucesso) {
           Swal.fire({
-            title: 'Usuário Cadastrado!', 
-            html: `<strong>ATENÇÃO:</strong> Copie e envie esta senha para o servidor:<br><br><h3 class="mt-2 text-primary user-select-all">${resposta.mensagem.split('ACESSO É: ')[1] || resposta.mensagem}</h3>`, 
+            title: 'Usuário salvo!',
+            html: resposta.senhaTemporaria
+              ? `<strong>ATENÇÃO:</strong> Copie e envie esta senha para o servidor:<br><br><h3 class="mt-2 text-primary user-select-all">${resposta.senhaTemporaria}</h3>`
+              : resposta.mensagem,
             icon: 'success'
           });
           const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario'));
@@ -85,7 +87,7 @@
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Usuário';
         Swal.fire('Erro no Servidor', String(erro), 'error');
       })
-      .salvarNovoUsuario(dadosObj); // The backend will be modified to handle Upsert
+      .salvarNovoUsuario(dadosObj, obterTokenSessao()); // The backend will be modified to handle Upsert
   }
 
   function prepararEdicao(email) {
@@ -174,7 +176,7 @@
             Swal.fire('Erro no Servidor', String(erro), 'error');
             carregarTabelaUsuarios();
           })
-          .excluirUsuario(email);
+          .excluirUsuario(email, obterTokenSessao());
       }
     });
   }
@@ -289,7 +291,7 @@
           .withFailureHandler(function(erro) {
             Swal.fire('Erro no Servidor', String(erro), 'error');
           })
-          .alternarStatusSetor(setorNome);
+          .alternarStatusSetor(setorNome, obterTokenSessao());
       }
     });
   }
@@ -324,7 +326,7 @@
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
         Swal.fire('Erro no Servidor', String(erro), 'error');
       })
-      .editarSetor(dadosObj);
+      .editarSetor(dadosObj, obterTokenSessao());
   }
 
   function salvarNovoSetorFrontend() {
@@ -361,7 +363,7 @@
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Setor';
         Swal.fire('Erro no Servidor', String(erro), 'error');
       })
-      .salvarNovoSetor(dadosObj);
+      .salvarNovoSetor(dadosObj, obterTokenSessao());
   }
 
   // ---- MOTOR DE FORMULÁRIOS (Admin) ----
@@ -485,7 +487,7 @@
         btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Formulário do Órgão';
         Swal.fire('Erro na Comunicação', String(erro), 'error');
       })
-      .salvarCamposDoSetor(setorNome, idsSelecionados);
+      .salvarCamposDoSetor(setorNome, idsSelecionados, obterTokenSessao());
   }
 
   function salvarNovoCampoFrontend() {
@@ -522,7 +524,7 @@
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Criar Campo';
         Swal.fire('Erro no Servidor', String(erro), 'error');
       })
-      .adicionarNovoCampoFormulario(dadosObj);
+      .adicionarNovoCampoFormulario(dadosObj, obterTokenSessao());
   }
 
   function inativarCampoFrontend(idColuna) {
@@ -553,7 +555,7 @@
             Swal.fire('Erro no Servidor', String(erro), 'error');
             carregarConfigFormularios();
           })
-          .inativarCampoFormulario(idColuna);
+          .inativarCampoFormulario(idColuna, obterTokenSessao());
       }
     });
   }
@@ -628,6 +630,6 @@
         btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Salvar Alterações';
         Swal.fire('Erro no Servidor', String(erro), 'error');
       })
-      .editarCampoGlobal(dadosObj);
+      .editarCampoGlobal(dadosObj, obterTokenSessao());
   }
 </script>

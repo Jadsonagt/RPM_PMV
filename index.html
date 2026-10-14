@@ -240,6 +240,18 @@
                     <label class="form-label text-muted fw-semibold">Idade</label>
                     <input type="text" class="form-control bg-light" id="inputIdade" name="Idade" readonly>
                   </div>
+                  <div class="col-md-3">
+                    <label class="form-label text-muted fw-semibold">Raça/Cor</label>
+                    <select class="form-select" id="inputRacaCor" name="Raça/Cor">
+                      <option value="">Selecione...</option>
+                      <option value="Branca">Branca</option>
+                      <option value="Preta">Preta</option>
+                      <option value="Parda">Parda</option>
+                      <option value="Amarela">Amarela</option>
+                      <option value="Indígena">Indígena</option>
+                      <option value="Não informada">Não informada</option>
+                    </select>
+                  </div>
                   <!-- Telefones -->
                   <div class="col-md-3">
                     <label class="form-label text-muted fw-semibold">Telefone Fixo</label>
@@ -293,28 +305,44 @@
                     </select>
                   </div>
                   <div class="col-md-4">
-                    <label class="form-label text-muted fw-semibold">Bolsa Família</label>
-                    <select class="form-select" id="inputBolsa" name="Bolsa Família">
+                    <label class="form-label text-muted fw-semibold">Possui benefício social?</label>
+                    <select class="form-select" id="inputPossuiBeneficio" name="Possui Benefício Social" onchange="atualizarVisibilidadeBeneficios('input')">
                       <option value="">Selecione...</option>
                       <option value="Sim">Sim</option>
                       <option value="Não">Não</option>
                     </select>
                   </div>
-                  <div class="col-md-4">
-                    <label class="form-label text-muted fw-semibold">BPC</label>
-                    <select class="form-select" id="inputBpc" name="BPC">
-                      <option value="">Selecione...</option>
-                      <option value="Sim">Sim</option>
-                      <option value="Não">Não</option>
-                    </select>
+                  <div class="col-12 d-none" id="input-beneficios-opcoes">
+                    <label class="form-label text-muted fw-semibold mb-2">Quais benefícios sociais possui?</label>
+                    <div class="row g-2">
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputBolsa"><label class="form-check-label" for="inputBolsa">Bolsa Família</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputBpc"><label class="form-check-label" for="inputBpc">BPC</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputAluguelSocialMunicipal"><label class="form-check-label" for="inputAluguelSocialMunicipal">Aluguel social municipal</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputAluguelSocialEstadual"><label class="form-check-label" for="inputAluguelSocialEstadual">Aluguel social estadual</label></div></div>
+                      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputOutroBeneficio" onchange="atualizarVisibilidadeBeneficios('input')"><label class="form-check-label" for="inputOutroBeneficio">Outro benefício social</label></div></div>
+                      <div class="col-12 d-none" id="input-outro-beneficio-container">
+                        <label class="form-label text-muted fw-semibold">Qual outro benefício?</label>
+                        <input type="text" class="form-control" id="inputOutroBeneficioDescricao" name="Descrição de Outro Benefício Social" maxlength="250" list="lista-outros-beneficios" placeholder="Selecione ou informe outro benefício" onblur="normalizarDescricaoOutro(this)">
+                        <small class="text-muted">Se houver mais de um, separe-os por ponto e vírgula (;).</small>
+                        <datalist id="lista-outros-beneficios">
+                          <option value="Pé-de-Meia">
+                          <option value="Gás do Povo">
+                          <option value="Tarifa Social de Energia Elétrica">
+                          <option value="Tarifa Social de Água e Esgoto">
+                          <option value="Auxílio-Inclusão">
+                          <option value="Seguro-Defeso">
+                        </datalist>
+                      </div>
+                    </div>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label text-muted fw-semibold">Moradia</label>
                     <select class="form-select" id="inputMoradia" name="Moradia">
                       <option value="">Selecione...</option>
                       <option value="Própria">Própria</option>
-                      <option value="Aluguel">Aluguel</option>
-                      <option value="Social">Social</option>
+                      <option value="Alugada">Alugada</option>
+                      <option value="Cedida">Cedida</option>
+                      <option value="Outro">Outro</option>
                     </select>
                   </div>
                   <!-- Data do Atendimento e Relato -->
@@ -377,6 +405,18 @@
                     <input type="date" class="form-control form-control-sm" id="cad_nascimento" name="Data de Nascimento">
                   </div>
                   <div class="col-md-4">
+                    <label class="form-label small">Raça/Cor</label>
+                    <select class="form-select form-select-sm" id="cad_raca_cor" name="Raça/Cor">
+                      <option value="">Selecione...</option>
+                      <option value="Branca">Branca</option>
+                      <option value="Preta">Preta</option>
+                      <option value="Parda">Parda</option>
+                      <option value="Amarela">Amarela</option>
+                      <option value="Indígena">Indígena</option>
+                      <option value="Não informada">Não informada</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
                     <label class="form-label small">Telefone Fixo</label>
                     <input type="text" class="form-control form-control-sm" id="cad_tel_fixo" name="Telefone Fixo" maxlength="14">
                   </div>
@@ -426,28 +466,36 @@
                     </select>
                   </div>
                   <div class="col-md-4">
-                    <label class="form-label small">Bolsa Família</label>
-                    <select class="form-select form-select-sm" id="cad_bolsa" name="Bolsa Família">
+                    <label class="form-label small">Possui benefício social?</label>
+                    <select class="form-select form-select-sm" id="cad_possui_beneficio" name="Possui Benefício Social" onchange="atualizarVisibilidadeBeneficios('cad')">
                       <option value="">Selecione...</option>
                       <option value="Sim">Sim</option>
                       <option value="Não">Não</option>
                     </select>
                   </div>
-                  <div class="col-md-4">
-                    <label class="form-label small">BPC</label>
-                    <select class="form-select form-select-sm" id="cad_bpc" name="BPC">
-                      <option value="">Selecione...</option>
-                      <option value="Sim">Sim</option>
-                      <option value="Não">Não</option>
-                    </select>
+                  <div class="col-12 d-none" id="cad-beneficios-opcoes">
+                    <label class="form-label small mb-2">Quais benefícios sociais possui?</label>
+                    <div class="row g-2">
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_bolsa"><label class="form-check-label small" for="cad_bolsa">Bolsa Família</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_bpc"><label class="form-check-label small" for="cad_bpc">BPC</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_aluguel_social_municipal"><label class="form-check-label small" for="cad_aluguel_social_municipal">Aluguel social municipal</label></div></div>
+                      <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_aluguel_social_estadual"><label class="form-check-label small" for="cad_aluguel_social_estadual">Aluguel social estadual</label></div></div>
+                      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_outro_beneficio" onchange="atualizarVisibilidadeBeneficios('cad')"><label class="form-check-label small" for="cad_outro_beneficio">Outro benefício social</label></div></div>
+                      <div class="col-12 d-none" id="cad-outro-beneficio-container">
+                        <label class="form-label small">Qual outro benefício?</label>
+                        <input type="text" class="form-control form-control-sm" id="cad_outro_beneficio_descricao" name="Descrição de Outro Benefício Social" maxlength="250" list="lista-outros-beneficios" placeholder="Selecione ou informe outro benefício" onblur="normalizarDescricaoOutro(this)">
+                        <small class="text-muted">Se houver mais de um, separe-os por ponto e vírgula (;).</small>
+                      </div>
+                    </div>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Moradia</label>
                     <select class="form-select form-select-sm" id="cad_moradia" name="Moradia">
                       <option value="">Selecione...</option>
                       <option value="Própria">Própria</option>
-                      <option value="Aluguel">Aluguel</option>
-                      <option value="Social">Social</option>
+                      <option value="Alugada">Alugada</option>
+                      <option value="Cedida">Cedida</option>
+                      <option value="Outro">Outro</option>
                     </select>
                   </div>
                 </div>

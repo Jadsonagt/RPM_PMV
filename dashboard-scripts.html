@@ -70,7 +70,7 @@
         loadingUI.classList.add('d-none');
         Swal.fire('Erro no Servidor', 'Falha ao processar os dados gerenciais.', 'error');
       })
-      .obterDadosDashboard(window.usuarioAtual ? window.usuarioAtual.email : '');
+      .obterDadosDashboard(obterTokenSessao());
   }
 
   window.limparFiltrosDashboard = function() {

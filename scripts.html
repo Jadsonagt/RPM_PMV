@@ -1,15 +1,21 @@
 <script>
   window.usuarioAtual = null;
 
+  function obterTokenSessao() {
+    return sessionStorage.getItem('rpm_session') || '';
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
-    const savedEmail = localStorage.getItem('rpm_email');
-    const savedSenha = localStorage.getItem('rpm_senha');
+    // Limpa credenciais deixadas por versões anteriores do sistema.
+    localStorage.removeItem('rpm_email');
+    localStorage.removeItem('rpm_senha');
+    const tokenSessao = sessionStorage.getItem('rpm_session');
     
-    if (savedEmail && savedSenha) {
+    if (tokenSessao) {
       google.script.run
         .withSuccessHandler(onLoginSuccess)
         .withFailureHandler(onLoginError)
-        .validarLoginManual(savedEmail, savedSenha);
+        .validarSessao(tokenSessao);
     } else {
       // Exibe a tela de login
       const loadingScreen = document.getElementById('loading-screen');
@@ -38,8 +44,7 @@
     google.script.run
       .withSuccessHandler(function(resposta) {
         if(resposta.autenticado) {
-          localStorage.setItem('rpm_email', email);
-          localStorage.setItem('rpm_senha', senha);
+          sessionStorage.setItem('rpm_session', resposta.tokenSessao);
           onLoginSuccess(resposta);
         } else {
           errorMsg.textContent = resposta.erro;
@@ -58,8 +63,8 @@
   }
 
   function fazerLogout() {
-    localStorage.removeItem('rpm_email');
-    localStorage.removeItem('rpm_senha');
+    const tokenSessao = sessionStorage.getItem('rpm_session');
+    if (tokenSessao) google.script.run.encerrarSessao(tokenSessao);
     sessionStorage.clear();
     window.usuarioAtual = null;
     
@@ -137,8 +142,7 @@
         configurarEventosViaCep();
       } else {
         if (resposta && resposta.erro) {
-          localStorage.removeItem('rpm_email');
-          localStorage.removeItem('rpm_senha');
+          sessionStorage.removeItem('rpm_session');
           const msgEl = document.getElementById('login-error-msg');
           const errorContainer = document.getElementById('login-error');
           if(msgEl && errorContainer) {
@@ -198,11 +202,11 @@
     const btnFormularios = document.getElementById('btn-tab-formularios');
 
     // Reset geral de visibilidade
-    if(abaAtend) abaAtend.classList.add('d-none');
-    if(abaDash) abaDash.classList.add('d-none');
-    if(abaUsuarios) abaUsuarios.classList.add('d-none');
-    if(abaSetores) abaSetores.classList.add('d-none');
-    if(abaFormularios) abaFormularios.classList.add('d-none');
+    if(abaAtend) { abaAtend.classList.add('d-none'); abaAtend.style.display = ''; }
+    if(abaDash) { abaDash.classList.add('d-none'); abaDash.style.display = ''; }
+    if(abaUsuarios) { abaUsuarios.classList.add('d-none'); abaUsuarios.style.display = ''; }
+    if(abaSetores) { abaSetores.classList.add('d-none'); abaSetores.style.display = ''; }
+    if(abaFormularios) { abaFormularios.classList.add('d-none'); abaFormularios.style.display = ''; }
     
     if(btnAtend) btnAtend.classList.remove('active');
     if(btnDash) btnDash.classList.remove('active');
@@ -218,15 +222,15 @@
       if(btnDash) btnDash.classList.add('active');
       carregarDashboard();
     } else if (abaDestino === 'usuarios') {
-      if(abaUsuarios) abaUsuarios.classList.remove('d-none');
+      if(abaUsuarios) { abaUsuarios.classList.remove('d-none'); abaUsuarios.style.display = 'block'; }
       if(btnUsuarios) btnUsuarios.classList.add('active');
       carregarTabelaUsuarios();
     } else if (abaDestino === 'setores') {
-      if(abaSetores) abaSetores.classList.remove('d-none');
+      if(abaSetores) { abaSetores.classList.remove('d-none'); abaSetores.style.display = 'block'; }
       if(btnSetores) btnSetores.classList.add('active');
       carregarTabelaSetores();
     } else if (abaDestino === 'formularios') {
-      if(abaFormularios) abaFormularios.classList.remove('d-none');
+      if(abaFormularios) { abaFormularios.classList.remove('d-none'); abaFormularios.style.display = 'block'; }
       if(btnFormularios) btnFormularios.classList.add('active');
       carregarConfigFormularios();
     }
@@ -297,7 +301,7 @@
       .withFailureHandler(function(erro) {
         container.innerHTML = '<p class="text-danger small"><i class="bi bi-exclamation-triangle me-1"></i>Erro ao carregar campos: ' + erro + '</p>';
       })
-      .buscarCamposFormulario(email);
+      .buscarCamposFormulario(email, obterTokenSessao());
   }
 
   function mascaraCPFAlfanumerico(event) {
@@ -319,14 +323,78 @@
   const CAMPOS_IMUTAVEIS = ['inputCpf', 'inputNome', 'inputRg', 'inputNascimento', 'inputIdade'];
   // Campos mutáveis: podem ser desbloqueados pelo botão lápis
   const CAMPOS_MUTAVEIS  = ['tel_fixo', 'tel_celular', 'cep_vitima', 'rua_vitima', 'num_vitima', 'bairro_vitima',
-                            'inputEscolaridade', 'inputRenda', 'inputBolsa', 'inputBpc', 'inputMoradia'];
+                            'inputRacaCor', 'inputEscolaridade', 'inputRenda', 'inputPossuiBeneficio', 'inputBolsa', 'inputBpc',
+                            'inputAluguelSocialMunicipal', 'inputAluguelSocialEstadual', 'inputOutroBeneficio',
+                            'inputOutroBeneficioDescricao', 'inputMoradia'];
+
+  function obterConfiguracaoBeneficios(prefixo) {
+    return prefixo === 'cad'
+      ? { possui: 'cad_possui_beneficio', opcoes: 'cad-beneficios-opcoes', outro: 'cad_outro_beneficio', outroContainer: 'cad-outro-beneficio-container', descricao: 'cad_outro_beneficio_descricao', bolsa: 'cad_bolsa', bpc: 'cad_bpc', municipal: 'cad_aluguel_social_municipal', estadual: 'cad_aluguel_social_estadual' }
+      : { possui: 'inputPossuiBeneficio', opcoes: 'input-beneficios-opcoes', outro: 'inputOutroBeneficio', outroContainer: 'input-outro-beneficio-container', descricao: 'inputOutroBeneficioDescricao', bolsa: 'inputBolsa', bpc: 'inputBpc', municipal: 'inputAluguelSocialMunicipal', estadual: 'inputAluguelSocialEstadual' };
+  }
+
+  function atualizarVisibilidadeBeneficios(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const possui = document.getElementById(cfg.possui);
+    const opcoes = document.getElementById(cfg.opcoes);
+    const outro = document.getElementById(cfg.outro);
+    const outroContainer = document.getElementById(cfg.outroContainer);
+    const descricao = document.getElementById(cfg.descricao);
+    const exibirOpcoes = possui.value === 'Sim';
+    opcoes.classList.toggle('d-none', !exibirOpcoes);
+    if (!exibirOpcoes) {
+      outroContainer.classList.add('d-none');
+      descricao.required = false;
+      if (possui.value === 'Não') {
+        [cfg.bolsa, cfg.bpc, cfg.municipal, cfg.estadual, cfg.outro].forEach(id => { document.getElementById(id).checked = false; });
+        descricao.value = '';
+      }
+      return;
+    }
+    outroContainer.classList.toggle('d-none', !outro.checked);
+    descricao.required = outro.checked;
+    if (!outro.checked) descricao.value = '';
+  }
+
+  function preencherBeneficios(prefixo, dados) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const valores = { bolsa: dados.bolsa_familia === 'Sim', bpc: dados.bpc === 'Sim', municipal: dados.aluguel_social_municipal === 'Sim', estadual: dados.aluguel_social_estadual === 'Sim', outro: dados.outro_beneficio_social === 'Sim' || Boolean(dados.descricao_outro_beneficio_social) };
+    document.getElementById(cfg.bolsa).checked = valores.bolsa;
+    document.getElementById(cfg.bpc).checked = valores.bpc;
+    document.getElementById(cfg.municipal).checked = valores.municipal;
+    document.getElementById(cfg.estadual).checked = valores.estadual;
+    document.getElementById(cfg.outro).checked = valores.outro;
+    document.getElementById(cfg.descricao).value = dados.descricao_outro_beneficio_social || '';
+    const possuiDadosRegistrados = ['bolsa_familia', 'bpc', 'aluguel_social_municipal', 'aluguel_social_estadual', 'outro_beneficio_social', 'descricao_outro_beneficio_social'].some(campo => Boolean(dados[campo]));
+    document.getElementById(cfg.possui).value = dados.possui_beneficio_social || (Object.values(valores).some(Boolean) ? 'Sim' : (possuiDadosRegistrados ? 'Não' : ''));
+    atualizarVisibilidadeBeneficios(prefixo);
+  }
+
+  function incluirDadosBeneficios(dadosObj, prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const possui = document.getElementById(cfg.possui).value;
+    dadosObj['Possui Benefício Social'] = possui;
+    dadosObj['Bolsa Família'] = possui === 'Sim' && document.getElementById(cfg.bolsa).checked ? 'Sim' : 'Não';
+    dadosObj['BPC'] = possui === 'Sim' && document.getElementById(cfg.bpc).checked ? 'Sim' : 'Não';
+    dadosObj['Aluguel Social Municipal'] = possui === 'Sim' && document.getElementById(cfg.municipal).checked ? 'Sim' : 'Não';
+    dadosObj['Aluguel Social Estadual'] = possui === 'Sim' && document.getElementById(cfg.estadual).checked ? 'Sim' : 'Não';
+    const temOutro = possui === 'Sim' && document.getElementById(cfg.outro).checked;
+    dadosObj['Outro Benefício Social'] = temOutro ? 'Sim' : 'Não';
+    dadosObj['Descrição de Outro Benefício Social'] = temOutro ? document.getElementById(cfg.descricao).value.trim() : '';
+  }
+
+  function normalizarDescricaoOutro(campo) {
+    const vistos = new Set();
+    campo.value = campo.value.split(/[;,\n]+/).map(item => item.trim())
+      .filter(item => item && !vistos.has(item.toLocaleLowerCase('pt-BR')) && vistos.add(item.toLocaleLowerCase('pt-BR'))).join('; ');
+  }
 
   function _bloquearTudo() {
     [...CAMPOS_IMUTAVEIS, ...CAMPOS_MUTAVEIS].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.readOnly = true;
-      if (el.tagName === 'SELECT') el.disabled = true;
+      if (el.tagName === 'SELECT' || el.type === 'checkbox') el.disabled = true;
     });
   }
 
@@ -410,10 +478,10 @@
           document.getElementById('rua_vitima').value = resultado.logradouro || '';
           document.getElementById('num_vitima').value = resultado.numero || '';
           document.getElementById('bairro_vitima').value = resultado.bairro || '';
+          document.getElementById('inputRacaCor').value = resultado.raca_cor || '';
           document.getElementById('inputEscolaridade').value = resultado.escolaridade || '';
           document.getElementById('inputRenda').value = resultado.renda || '';
-          document.getElementById('inputBolsa').value = resultado.bolsa_familia || '';
-          document.getElementById('inputBpc').value = resultado.bpc || '';
+          preencherBeneficios('input', resultado);
           document.getElementById('inputMoradia').value = resultado.moradia || '';
           calcularIdadeVitima();
 
@@ -426,6 +494,7 @@
           idVitimaOculto.value = 'NOVO';
           document.getElementById('formAtendimento').reset();
           document.getElementById('inputCpf').value = cpf; // restaura o CPF digitado
+          atualizarVisibilidadeBeneficios('input');
           _liberarTudo();
           Swal.fire({ title: 'Nova Vítima', text: 'CPF não encontrado. Preencha os dados para cadastro.', icon: 'info', timer: 3000, showConfirmButton: false });
         }
@@ -435,7 +504,7 @@
         document.getElementById('inputNome').value = '';
         Swal.fire('Erro', String(erro), 'error');
       })
-      .buscarVitimaPorCpf(cpf);
+      .buscarVitimaPorCpf(cpf, obterTokenSessao());
   }
 
   function enviarFormulario() {
@@ -466,6 +535,7 @@
     for (const [key, value] of formData.entries()) {
       if (value) dadosObj[key] = value;
     }
+    incluirDadosBeneficios(dadosObj, 'input');
     // Garante CPF mesmo com seção oculta
     if (!dadosObj['CPF'] && cpfHidden) dadosObj['CPF'] = cpfHidden;
 
@@ -481,7 +551,9 @@
           // b) Exibe alerta visual
           Swal.fire({
             title: 'Sucesso!',
-            text: 'Atendimento salvo com sucesso.',
+            text: resposta.tipo === 'cadastro_atualizado'
+              ? 'Cadastro atualizado. Nenhum atendimento foi incluído no histórico.'
+              : 'Atendimento salvo com sucesso.',
             icon: 'success',
             timer: 2500,
             showConfirmButton: false
@@ -501,7 +573,7 @@
         btn.disabled = false; btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Atendimento';
         Swal.fire('Erro no servidor', String(e), 'error');
       })
-      .salvarAtendimento(dadosObj);
+      .salvarAtendimento(dadosObj, obterTokenSessao());
   }
 
   // --- LÓGICA DE RASCUNHO E DATAS ---
@@ -902,7 +974,7 @@
         btn.disabled = false; btn.innerHTML = 'Buscar Histórico';
         Swal.fire('Erro no servidor', String(erro), 'error');
       })
-      .consultarProntuarioIntegrado(cpfLimpo, window.usuarioAtual.email);
+      .consultarProntuarioIntegrado(cpfLimpo, obterTokenSessao());
   }
 
   function obterDataDeHojeFormatada() {
@@ -948,7 +1020,7 @@
             document.getElementById('idVitimaOculto').value = resultado.idVitima || '';
           }
         })
-        .buscarVitimaPorCpf(cpfBase);
+        .buscarVitimaPorCpf(cpfBase, obterTokenSessao());
     }
     
     // Auto-preenche a data de hoje se o campo estiver vazio
@@ -1004,11 +1076,11 @@
            document.getElementById('cad_rua').value = v.logradouro || '';
            document.getElementById('cad_numero').value = v.numero || '';
            document.getElementById('cad_bairro').value = v.bairro || '';
+           document.getElementById('cad_raca_cor').value = v.raca_cor || '';
            
            document.getElementById('cad_escolaridade').value = v.escolaridade || '';
            document.getElementById('cad_renda').value = v.renda || '';
-           document.getElementById('cad_bolsa').value = v.bolsa_familia || '';
-           document.getElementById('cad_bpc').value = v.bpc || '';
+           preencherBeneficios('cad', v);
            document.getElementById('cad_moradia').value = v.moradia || '';
            
            // Bloqueia todos os campos após preenchimento
@@ -1018,7 +1090,8 @@
            
            inputs.forEach(input => {
                if(input.id !== 'cad_cpf' && input.type !== 'hidden') {
-                   input.readOnly = true;
+                   if (input.type === 'checkbox') input.disabled = true;
+                   else input.readOnly = true;
                }
            });
            
@@ -1033,7 +1106,7 @@
            if (btnSalvar) btnSalvar.classList.add('d-none');
         }
       })
-      .buscarVitimaPorCpf(cpf);
+      .buscarVitimaPorCpf(cpf, obterTokenSessao());
   }
 
   function habilitarEdicaoCadastro() {
@@ -1043,7 +1116,8 @@
       
       inputs.forEach(input => {
           if(input.id !== 'cad_cpf' && input.type !== 'hidden') {
-              input.readOnly = false;
+              if (input.type === 'checkbox') input.disabled = false;
+              else input.readOnly = false;
           }
       });
       
@@ -1071,6 +1145,7 @@
     const formData = new FormData(form);
     const dadosObj = {};
     formData.forEach((value, key) => { dadosObj[key] = value; });
+    incluirDadosBeneficios(dadosObj, 'cad');
     // Pegar valor do input desabilitado manualmente
     dadosObj['CPF'] = document.getElementById('cad_cpf').value;
 
@@ -1091,6 +1166,6 @@
         btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Cadastro';
         Swal.fire('Erro Crítico', String(erro), 'error');
       })
-      .salvarEdicaoCadastroVitima(dadosObj);
+      .salvarEdicaoCadastroVitima(dadosObj, obterTokenSessao());
   }
 </script>
