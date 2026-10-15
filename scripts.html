@@ -329,8 +329,8 @@
 
   function obterConfiguracaoBeneficios(prefixo) {
     return prefixo === 'cad'
-      ? { possui: 'cad_possui_beneficio', opcoes: 'cad-beneficios-opcoes', outro: 'cad_outro_beneficio', outroContainer: 'cad-outro-beneficio-container', descricao: 'cad_outro_beneficio_descricao', bolsa: 'cad_bolsa', bpc: 'cad_bpc', municipal: 'cad_aluguel_social_municipal', estadual: 'cad_aluguel_social_estadual' }
-      : { possui: 'inputPossuiBeneficio', opcoes: 'input-beneficios-opcoes', outro: 'inputOutroBeneficio', outroContainer: 'input-outro-beneficio-container', descricao: 'inputOutroBeneficioDescricao', bolsa: 'inputBolsa', bpc: 'inputBpc', municipal: 'inputAluguelSocialMunicipal', estadual: 'inputAluguelSocialEstadual' };
+      ? { possui: 'cad_possui_beneficio', opcoes: 'cad-beneficios-opcoes', outro: 'cad_outro_beneficio', outroContainer: 'cad-outro-beneficio-container', descricao: 'cad_outro_beneficio_descricao', tags: 'cad-outro-beneficio-tags', sugestao: 'cad_outro_beneficio_sugestao', texto: 'cad_outro_beneficio_texto', bolsa: 'cad_bolsa', bpc: 'cad_bpc', municipal: 'cad_aluguel_social_municipal', estadual: 'cad_aluguel_social_estadual' }
+      : { possui: 'inputPossuiBeneficio', opcoes: 'input-beneficios-opcoes', outro: 'inputOutroBeneficio', outroContainer: 'input-outro-beneficio-container', descricao: 'inputOutroBeneficioDescricao', tags: 'input-outro-beneficio-tags', sugestao: 'inputOutroBeneficioSugestao', texto: 'inputOutroBeneficioTexto', bolsa: 'inputBolsa', bpc: 'inputBpc', municipal: 'inputAluguelSocialMunicipal', estadual: 'inputAluguelSocialEstadual' };
   }
 
   function atualizarVisibilidadeBeneficios(prefixo) {
@@ -348,12 +348,96 @@
       if (possui.value === 'Não') {
         [cfg.bolsa, cfg.bpc, cfg.municipal, cfg.estadual, cfg.outro].forEach(id => { document.getElementById(id).checked = false; });
         descricao.value = '';
+        renderizarBeneficiosOutro(prefixo);
       }
       return;
     }
     outroContainer.classList.toggle('d-none', !outro.checked);
-    descricao.required = outro.checked;
+    descricao.required = false;
     if (!outro.checked) descricao.value = '';
+    renderizarBeneficiosOutro(prefixo);
+  }
+
+  function obterItensBeneficiosOutro(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    return document.getElementById(cfg.descricao).value.split(';').map(item => item.trim()).filter(Boolean);
+  }
+
+  function definirItensBeneficiosOutro(prefixo, itens) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const vistos = new Set();
+    const padronizados = itens.map(item => item.trim()).filter(item => {
+      const chave = item.toLocaleLowerCase('pt-BR');
+      if (!item || vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+    document.getElementById(cfg.descricao).value = padronizados.join('; ');
+    renderizarBeneficiosOutro(prefixo);
+  }
+
+  function renderizarBeneficiosOutro(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const itens = obterItensBeneficiosOutro(prefixo);
+    const container = document.getElementById(cfg.tags);
+    const sugestao = document.getElementById(cfg.sugestao);
+    const texto = document.getElementById(cfg.texto);
+    const bloqueado = sugestao.disabled || texto.disabled;
+    container.innerHTML = '';
+    itens.forEach((item, indice) => {
+      const etiqueta = document.createElement('span');
+      etiqueta.className = 'badge rounded-pill text-bg-primary d-inline-flex align-items-center gap-2 py-2 px-3';
+      const nome = document.createElement('span');
+      nome.textContent = item;
+      const remover = document.createElement('button');
+      remover.type = 'button';
+      remover.className = 'btn-close btn-close-white';
+      remover.setAttribute('aria-label', `Remover ${item}`);
+      remover.disabled = bloqueado;
+      remover.addEventListener('click', () => {
+        const novosItens = obterItensBeneficiosOutro(prefixo);
+        novosItens.splice(indice, 1);
+        definirItensBeneficiosOutro(prefixo, novosItens);
+      });
+      etiqueta.append(nome, remover);
+      container.appendChild(etiqueta);
+    });
+    Array.from(sugestao.options).forEach(opcao => {
+      if (opcao.value) opcao.disabled = itens.some(item => item.toLocaleLowerCase('pt-BR') === opcao.value.toLocaleLowerCase('pt-BR'));
+    });
+  }
+
+  function adicionarBeneficioOutroDaLista(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const sugestao = document.getElementById(cfg.sugestao);
+    if (!sugestao.value) return;
+    definirItensBeneficiosOutro(prefixo, [...obterItensBeneficiosOutro(prefixo), sugestao.value]);
+    sugestao.value = '';
+  }
+
+  function adicionarBeneficioOutroDigitado(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    const texto = document.getElementById(cfg.texto);
+    const novosItens = texto.value.split(/[;,\n]+/).map(item => item.trim()).filter(Boolean);
+    if (!novosItens.length) return;
+    definirItensBeneficiosOutro(prefixo, [...obterItensBeneficiosOutro(prefixo), ...novosItens]);
+    texto.value = '';
+    texto.focus();
+  }
+
+  function adicionarBeneficioOutroPorTecla(evento, prefixo) {
+    if (evento.key !== 'Enter') return;
+    evento.preventDefault();
+    adicionarBeneficioOutroDigitado(prefixo);
+  }
+
+  function validarBeneficioOutro(prefixo) {
+    const cfg = obterConfiguracaoBeneficios(prefixo);
+    if (document.getElementById(cfg.outro).checked && !obterItensBeneficiosOutro(prefixo).length) {
+      Swal.fire('Informe o outro benefício', 'Escolha um programa da lista ou digite o benefício antes de salvar.', 'warning');
+      return false;
+    }
+    return true;
   }
 
   function preencherBeneficios(prefixo, dados) {
@@ -396,6 +480,7 @@
       el.readOnly = true;
       if (el.tagName === 'SELECT' || el.type === 'checkbox') el.disabled = true;
     });
+    renderizarBeneficiosOutro('input');
   }
 
   function _liberarTudo() {
@@ -405,6 +490,7 @@
       el.readOnly = false;
       el.disabled = false;
     });
+    renderizarBeneficiosOutro('input');
     // Limpa avisos LGPD se existirem
     document.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
   }
@@ -416,6 +502,7 @@
       el.readOnly = false;
       el.disabled = false;
     });
+    renderizarBeneficiosOutro('input');
     // Mantém os imutáveis bloqueados
     Swal.fire({ title: 'Edição Habilitada', text: 'Você pode atualizar contato, endereço e perfil socioeconômico. Dados de identidade são protegidos.', icon: 'info', timer: 3000, showConfirmButton: false });
   }
@@ -478,6 +565,9 @@
           document.getElementById('rua_vitima').value = resultado.logradouro || '';
           document.getElementById('num_vitima').value = resultado.numero || '';
           document.getElementById('bairro_vitima').value = resultado.bairro || '';
+          if (resultado.cep && (!resultado.logradouro || !resultado.bairro)) {
+            preencherEnderecoPorCep(resultado.cep, true, false);
+          }
           document.getElementById('inputRacaCor').value = resultado.raca_cor || '';
           document.getElementById('inputEscolaridade').value = resultado.escolaridade || '';
           document.getElementById('inputRenda').value = resultado.renda || '';
@@ -509,6 +599,7 @@
 
   function enviarFormulario() {
     const form = document.getElementById('formAtendimento');
+    if (!validarBeneficioOutro('input')) return;
     
     // Passo 4: Se a seção está oculta (fluxo de evolução), usa o CPF hidden
     const cpfHidden = document.getElementById('cpf-evolucao-hidden').value;
@@ -753,17 +844,7 @@
           e.target.value = valor;
           
           if (valor.length === 9) {
-            fetch("https://viacep.com.br/ws/" + valor.replace('-','') + "/json/")
-              .then(res => res.json())
-              .then(data => {
-                if (!data.erro) {
-                  const rua = document.getElementById('rua_vitima');
-                  const bairro = document.getElementById('bairro_vitima');
-                  if(rua) rua.value = data.logradouro || '';
-                  if(bairro) bairro.value = data.bairro || '';
-                }
-              })
-              .catch(err => console.error("Erro ViaCEP:", err));
+            preencherEnderecoPorCep(valor);
           }
         });
       }
@@ -817,6 +898,35 @@
     } catch(err) {
       console.warn("Erro ao configurar ViaCEP", err);
     }
+  }
+
+  function preencherEnderecoPorCep(cep, apenasCamposVazios, exibirAviso) {
+    const cepLimpo = String(cep || '').replace(/\D/g, '');
+    if (cepLimpo.length !== 8) return;
+
+    fetch("https://viacep.com.br/ws/" + cepLimpo + "/json/")
+      .then(res => {
+        if (!res.ok) throw new Error('Consulta de CEP indisponível');
+        return res.json();
+      })
+      .then(data => {
+        if (data.erro) {
+          if (exibirAviso !== false) {
+            Swal.fire('CEP não encontrado', 'Verifique os números informados e tente novamente.', 'warning');
+          }
+          return;
+        }
+        const rua = document.getElementById('rua_vitima');
+        const bairro = document.getElementById('bairro_vitima');
+        if (rua && (!apenasCamposVazios || !rua.value.trim())) rua.value = data.logradouro || '';
+        if (bairro && (!apenasCamposVazios || !bairro.value.trim())) bairro.value = data.bairro || '';
+      })
+      .catch(err => {
+        console.error("Erro ViaCEP:", err);
+        if (exibirAviso !== false) {
+          Swal.fire('Não foi possível consultar o CEP', 'Confira sua conexão e tente novamente.', 'error');
+        }
+      });
   }
 
   function limparTelaBusca() {
@@ -1098,6 +1208,7 @@
            selects.forEach(select => {
                select.disabled = true;
            });
+           renderizarBeneficiosOutro('cad');
            
            // Garante estado inicial dos botões
            const btnEditar = document.getElementById('btnEditarCadastro');
@@ -1124,6 +1235,7 @@
       selects.forEach(select => {
           select.disabled = false;
       });
+      renderizarBeneficiosOutro('cad');
       
       const btnEditar = document.getElementById('btnEditarCadastro');
       const btnSalvar = document.getElementById('btnSalvarCadastro');
@@ -1137,6 +1249,7 @@
       form.reportValidity();
       return;
     }
+    if (!validarBeneficioOutro('cad')) return;
 
     const btn = document.getElementById('btnSalvarCadastro');
     btn.disabled = true;

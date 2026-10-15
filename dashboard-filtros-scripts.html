@@ -1,0 +1,158 @@
+<script>
+  (function () {
+    var dadosObservados = null;
+    var perfisCarregados = false;
+    var aplicacaoOriginal = null;
+
+    function criarSelect(id, titulo, opcoes) {
+      var bloco = document.createElement('div');
+      var label = document.createElement('label');
+      label.className = 'form-label small text-muted fw-bold mb-1';
+      label.textContent = titulo;
+      var select = document.createElement('select');
+      select.id = id;
+      select.className = 'form-select form-select-sm';
+      opcoes.forEach(function (opcao) {
+        var elemento = document.createElement('option');
+        elemento.value = opcao.valor;
+        elemento.textContent = opcao.texto;
+        select.appendChild(elemento);
+      });
+      select.addEventListener('change', aplicarFiltrosIsolados);
+      bloco.appendChild(label);
+      bloco.appendChild(select);
+      return bloco;
+    }
+
+    function inserirCampos() {
+      if (document.getElementById('filtro-idade-isolado')) return;
+      var barra = document.querySelector('#dash-content .card-body.py-3');
+      if (!barra) return;
+      barra.insertBefore(criarSelect('filtro-idade-isolado', 'Faixa etária', [
+        { valor: '', texto: 'Todas' }, { valor: '0-17', texto: '0 a 17 anos' },
+        { valor: '18-29', texto: '18 a 29 anos' }, { valor: '30-44', texto: '30 a 44 anos' },
+        { valor: '45-59', texto: '45 a 59 anos' }, { valor: '60+', texto: '60 anos ou mais' }
+      ]), barra.lastElementChild);
+      barra.insertBefore(criarSelect('filtro-raca-isolado', 'Raça/Cor', [{ valor: '', texto: 'Todas' }]), barra.lastElementChild);
+      barra.insertBefore(criarSelect('filtro-beneficio-isolado', 'Benefício social', [
+        { valor: '', texto: 'Todos' }, { valor: '__com__', texto: 'Recebe algum benefício' }, { valor: '__sem__', texto: 'Não recebe benefício' }
+      ]), barra.lastElementChild);
+      barra.insertBefore(criarSelect('filtro-setor-isolado', 'Setor / órgão', [{ valor: '', texto: 'Todos' }]), barra.lastElementChild);
+    }
+
+    function preencherSelect(id, valores) {
+      var select = document.getElementById(id);
+      if (!select) return;
+      var atual = select.value;
+      var fixas = [];
+      Array.prototype.forEach.call(select.options, function (opcao) {
+        if (!opcao.value || opcao.value.indexOf('__') === 0) fixas.push({ valor: opcao.value, texto: opcao.textContent });
+      });
+      select.innerHTML = '';
+      fixas.forEach(function (opcao) {
+        var elemento = document.createElement('option'); elemento.value = opcao.valor; elemento.textContent = opcao.texto; select.appendChild(elemento);
+      });
+      valores.sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); }).forEach(function (valor) {
+        var elemento = document.createElement('option'); elemento.value = valor; elemento.textContent = valor; select.appendChild(elemento);
+      });
+      select.value = valores.indexOf(atual) >= 0 || !atual ? atual : '';
+    }
+
+    function carregarPerfis() {
+      if (!window.dashDadosBrutos || !window.dashDadosBrutos.length || perfisCarregados) return;
+      perfisCarregados = true;
+      google.script.run.withSuccessHandler(function (resposta) {
+        var perfis = resposta && resposta.perfis ? resposta.perfis : {};
+        window.dashDadosBrutos.forEach(function (item) {
+          var perfil = perfis[item.idVitima] || {};
+          item.idade = perfil.idade || null;
+          item.racaCor = perfil.racaCor || '';
+          item.beneficios = Array.isArray(perfil.beneficios) ? perfil.beneficios : [];
+        });
+        preencherSelect('filtro-raca-isolado', valoresUnicos(function (item) { return item.racaCor; }));
+        preencherSelect('filtro-beneficio-isolado', beneficiosUnicos());
+        preencherSelect('filtro-setor-isolado', valoresUnicos(function (item) { return item.orgao; }));
+      }).withFailureHandler(function () {
+        perfisCarregados = false;
+      }).obterPerfisFiltrosDashboard(obterTokenSessao());
+    }
+
+    function valoresUnicos(obter) {
+      var encontrados = {};
+      (window.dashDadosBrutos || []).forEach(function (item) { var valor = obter(item); if (valor) encontrados[valor] = true; });
+      return Object.keys(encontrados);
+    }
+
+    function beneficiosUnicos() {
+      var encontrados = {};
+      (window.dashDadosBrutos || []).forEach(function (item) {
+        (item.beneficios || []).forEach(function (beneficio) { encontrados[beneficio] = true; });
+      });
+      return Object.keys(encontrados);
+    }
+
+    function dentroDaFaixa(idade, faixa) {
+      if (!faixa) return true;
+      idade = Number(idade);
+      if (!isFinite(idade)) return false;
+      if (faixa === '60+') return idade >= 60;
+      var partes = faixa.split('-');
+      return idade >= Number(partes[0]) && idade <= Number(partes[1]);
+    }
+
+    function aplicarFiltrosIsolados() {
+      if (!perfisCarregados || !window.dashDadosBrutos) return;
+      var idade = document.getElementById('filtro-idade-isolado').value;
+      var raca = document.getElementById('filtro-raca-isolado').value;
+      var beneficio = document.getElementById('filtro-beneficio-isolado').value;
+      var setor = document.getElementById('filtro-setor-isolado').value;
+      var ano = document.getElementById('filtro-ano').value;
+      var inicio = document.getElementById('filtro-data-inicio').value;
+      var fim = document.getElementById('filtro-data-fim').value;
+      var filtrados = window.dashDadosBrutos.filter(function (item) {
+        if (!item.data) return false;
+        var data = new Date(item.data);
+        if (ano && String(data.getFullYear()) !== ano) return false;
+        if (inicio && data < new Date(inicio + 'T00:00:00')) return false;
+        if (fim && data > new Date(fim + 'T23:59:59')) return false;
+        if (!dentroDaFaixa(item.idade, idade)) return false;
+        if (raca && item.racaCor !== raca) return false;
+        var beneficios = item.beneficios || [];
+        if (beneficio === '__com__' && !beneficios.length) return false;
+        if (beneficio === '__sem__' && beneficios.length) return false;
+        if (beneficio && beneficio.indexOf('__') !== 0 && beneficios.indexOf(beneficio) < 0) return false;
+        if (setor && item.orgao !== setor) return false;
+        return true;
+      });
+      window.dashDadosFiltrados = filtrados;
+      atualizarCards(filtrados);
+      atualizarGraficoPizza(filtrados);
+      atualizarMapaDeCalor(filtrados);
+      atualizarGraficoEvolucao(filtrados);
+    }
+
+    function observarDashboard() {
+      inserirCampos();
+      if (window.dashDadosBrutos !== dadosObservados) {
+        dadosObservados = window.dashDadosBrutos;
+        perfisCarregados = false;
+        carregarPerfis();
+      }
+    }
+
+    function iniciar() {
+      inserirCampos();
+      aplicacaoOriginal = window.aplicarFiltrosDashboard;
+      if (aplicacaoOriginal) {
+        window.aplicarFiltrosDashboard = function (parametros) {
+          aplicacaoOriginal(parametros);
+          setTimeout(aplicarFiltrosIsolados, 0);
+        };
+      }
+      setInterval(observarDashboard, 700);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+    else iniciar();
+  }());
+</script>

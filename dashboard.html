@@ -5,7 +5,10 @@
         <h3><i class="bi bi-pie-chart-fill me-2 text-primary"></i>Painel Gerencial</h3>
         <p class="text-muted">Visão consolidada da atuação da Rede de Proteção.</p>
       </div>
-      <button class="btn btn-outline-secondary btn-sm" onclick="carregarDashboard()"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalRelatorioDashboard"><i class="bi bi-printer me-1"></i>Gerar relatório</button>
+        <button class="btn btn-primary btn-sm" onclick="carregarDashboard()"><i class="bi bi-arrow-clockwise me-1"></i>Atualizar</button>
+      </div>
     </div>
   </div>
 
@@ -34,7 +37,7 @@
           <input type="date" id="filtro-data-fim" class="form-control form-control-sm" onchange="window.aplicarFiltrosDashboard()">
         </div>
         <div class="ms-auto mt-2 mt-md-0 d-flex align-items-end">
-          <button class="btn btn-sm btn-outline-secondary" onclick="window.limparFiltrosDashboard()"><i class="bi bi-x-circle me-1"></i>Limpar Filtros</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="window.limparFiltrosDashboard()"><i class="bi bi-x-circle me-1"></i>Limpar Filtros</button>
         </div>
       </div>
     </div>
@@ -61,9 +64,13 @@
       <div class="col-md-8">
         <div class="card bg-white shadow-sm h-100 border-0">
           <div class="card-header bg-white border-0 pt-3 pb-0">
-            <h6 class="text-secondary fw-bold"><i class="bi bi-geo-alt-fill me-1 text-danger"></i>Mapa de Calor (Ocorrências)</h6>
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="text-secondary fw-bold mb-0"><i class="bi bi-geo-alt-fill me-1 text-danger"></i>Mapa de Calor (Ocorrências)</h6>
+              <button type="button" class="btn btn-sm btn-primary" onclick="abrirMapaAmpliado()"><i class="bi bi-arrows-fullscreen me-1"></i>Ampliar</button>
+            </div>
           </div>
           <div class="card-body p-2">
+            <small id="mapa-calor-info" class="text-muted d-block px-1 pb-1"></small>
             <!-- Container do Mapa -->
             <div id="mapa-calor" style="height: 300px; width: 100%; border-radius: 6px; z-index: 1;"></div>
           </div>
@@ -94,6 +101,53 @@
             <canvas id="graficoOrgaos" style="max-height: 250px; width: 100%;"></canvas>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalRelatorioDashboard" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-file-earmark-bar-graph me-2"></i>Gerar relatório gerencial</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">O relatório respeitará todos os filtros atualmente aplicados e apresentará somente dados consolidados.</p>
+        <div class="form-check border rounded p-3 mb-2 relatorio-escopo">
+          <input class="form-check-input" type="radio" name="escopo-relatorio" id="relatorio-rede" value="rede" checked>
+          <label class="form-check-label" for="relatorio-rede">
+            <strong>Rede completa</strong><br><span class="small text-muted">Todos os setores, respeitando os filtros do painel.</span>
+          </label>
+        </div>
+        <div class="form-check border rounded p-3 relatorio-escopo">
+          <input class="form-check-input" type="radio" name="escopo-relatorio" id="relatorio-setor" value="setor">
+          <label class="form-check-label" for="relatorio-setor">
+            <strong>Setor / secretaria específica</strong><br><span class="small text-muted">Escolha qualquer setor para apoiar a discussão do plano de trabalho.</span>
+          </label>
+          <select id="relatorio-setor-especifico" class="form-select form-select-sm mt-2" disabled>
+            <option value="">Selecione um setor...</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="gerarRelatorioDashboard()"><i class="bi bi-printer me-1"></i>Gerar e imprimir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalMapaAmpliado" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title text-primary"><i class="bi bi-geo-alt-fill me-2 text-danger"></i>Mapa de Calor (Ocorrências)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body p-2">
+        <div id="mapa-calor-ampliado" style="height: 70vh; width: 100%;"></div>
       </div>
     </div>
   </div>

@@ -24,6 +24,33 @@
     font-family: var(--bs-font-sans-serif);
     background-color: var(--bs-body-bg);
     color: var(--bs-body-color);
+    min-width: 320px;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: rgba(26, 54, 93, 0.14);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* Não aplicar esta regra a canvas: o Leaflet usa um canvas interno para o mapa de calor. */
+  img, svg { max-width: 100%; }
+
+  button, a, input, select, textarea { touch-action: manipulation; }
+
+  /* Foco visível por teclado e leitores de tela: não depende apenas da cor. */
+  :focus-visible {
+    outline: 3px solid rgba(13, 110, 253, .42);
+    outline-offset: 2px;
+  }
+
+  .btn:active:not(:disabled),
+  .nav-item-custom:active {
+    transform: translateY(1px);
+  }
+
+  .btn:disabled,
+  .form-control:disabled,
+  .form-select:disabled {
+    opacity: .68;
   }
 
   /* Força a cor institucional em todos os títulos */
@@ -77,8 +104,373 @@
   }
 
   /* Regra global LGPD e bloqueio de inputs para melhor feedback visual */
-  input:read-only, input:disabled, select:disabled, textarea:read-only, textarea:disabled {
+  input:not([type="checkbox"]):read-only, input:not([type="checkbox"]):disabled, select:disabled, textarea:read-only, textarea:disabled {
     background-color: #e9ecef !important;
     cursor: not-allowed;
+  }
+
+  .form-switch .form-check-input:not(:disabled),
+  .form-switch .form-check-label {
+    cursor: pointer;
+  }
+
+  #modalRelatorioDashboard .relatorio-escopo {
+    display: block;
+    cursor: pointer;
+  }
+
+  #modalRelatorioDashboard .form-check-input {
+    float: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    margin: 0 0.5rem 0 0;
+    vertical-align: -0.15rem;
+    cursor: pointer;
+    border-color: #0d6efd;
+  }
+
+  #modalRelatorioDashboard .form-check-input:checked {
+    background-color: #ffffff;
+    border-color: #0d6efd;
+    background-image: radial-gradient(circle, #0d6efd 0 42%, transparent 47%);
+  }
+
+  #modalRelatorioDashboard .form-check-label {
+    cursor: pointer;
+  }
+
+  /* Ajustes de uso em telas pequenas (celulares e tablets estreitos). */
+  /* Base mobile-first: até 767px os controles ocupam área de toque confortável.
+     Em 768px+ o Bootstrap expande as colunas (col-md) para tablet e desktop. */
+  @media (max-width: 767.98px) {
+    body {
+      font-size: 0.95rem;
+      overflow-x: hidden;
+    }
+
+    .container,
+    .container-fluid {
+      padding-right: 1rem;
+      padding-left: 1rem;
+    }
+
+    .btn,
+    .form-control,
+    .form-select,
+    .input-group-text {
+      min-height: 44px;
+    }
+
+    .btn-sm,
+    .form-control-sm,
+    .form-select-sm,
+    .input-group-sm > .btn,
+    .input-group-sm > .form-control,
+    .input-group-sm > .form-select,
+    .input-group-sm > .input-group-text {
+      min-height: 40px;
+    }
+
+    .form-check-input {
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-top: .12rem;
+    }
+
+    .form-check-label {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      padding: .2rem 0;
+    }
+
+    .navbar-custom .container-fluid {
+      flex-wrap: wrap;
+    }
+
+    .navbar-brand {
+      max-width: calc(100% - 3.5rem);
+      margin-right: 0;
+    }
+
+    .navbar-brand img {
+      height: 34px !important;
+    }
+
+    .brand-text {
+      margin-left: 8px;
+      font-size: 1.05rem;
+      white-space: nowrap;
+    }
+
+    .navbar-toggler {
+      padding: .2rem .4rem;
+    }
+
+    .navbar-toggler .fs-1 {
+      font-size: 1.75rem !important;
+    }
+
+    #navbarNav {
+      width: 100%;
+    }
+
+    .navbar-nav {
+      margin: .5rem 0 !important;
+      gap: .15rem;
+    }
+
+    .nav-item-custom {
+      margin: 0;
+      padding: .55rem .8rem !important;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+    }
+
+    .nav-user-info {
+      width: 100%;
+      padding: .65rem .25rem .2rem;
+      margin: 0 !important;
+      border-top: 1px solid #eef0f2;
+    }
+
+    .nav-user-info .fs-3 {
+      font-size: 1.5rem !important;
+    }
+
+    #login-screen {
+      padding: 1rem;
+    }
+
+    #login-screen .card {
+      max-width: 100% !important;
+    }
+
+    #login-screen .card-body {
+      padding: 1.5rem !important;
+    }
+
+    /* Cabeçalhos e botões de ações passam a ocupar linhas próprias. */
+    #aba-atendimentos > .row > [class*="col-"],
+    #dashboard-container > .row:first-child > [class*="col-"],
+    #usuarios-container > .row > [class*="col-"],
+    #setores-container > .row > [class*="col-"] {
+      margin-bottom: .75rem;
+    }
+
+    #dashboard-container > .row:first-child .d-flex,
+    #usuarios-container > .row .text-md-end,
+    #setores-container > .row .text-md-end {
+      width: 100%;
+      text-align: left !important;
+    }
+
+    #dashboard-container > .row:first-child .d-flex {
+      flex-wrap: wrap;
+    }
+
+    #dashboard-container > .row:first-child .btn,
+    #usuarios-container > .row .btn,
+    #setores-container > .row .btn {
+      flex: 1 1 auto;
+    }
+
+    /* Busca de prontuário: em celular, cada ação ocupa sua própria linha.
+       Isto evita a compressão do CPF e garante controles confortáveis ao toque. */
+    .input-group {
+      flex-wrap: wrap;
+    }
+
+    .input-group > .form-control,
+    .input-group > .form-select {
+      min-width: 0;
+    }
+
+    .prontuario-search-group {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: .5rem;
+    }
+
+    .prontuario-search-group .input-group-text {
+      display: none;
+    }
+
+    .prontuario-search-group #inputCpfProntuario,
+    .prontuario-search-group #btnBuscarProntuario,
+    .prontuario-search-group #btn-limpar-busca {
+      flex: 0 0 auto;
+      width: 100%;
+      margin: 0;
+      border-radius: .375rem !important;
+    }
+
+    #resultado-prontuario .card-body > div:last-child,
+    #resultado-prontuario .d-flex.gap-2 {
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    #resultado-prontuario .btn {
+      flex: 1 1 100%;
+    }
+
+    /* Painel: filtros e indicadores legíveis sem rolagem horizontal. */
+    #dashboard-container {
+      margin-top: 1rem !important;
+    }
+
+    #dashboard-container h3,
+    #aba-atendimentos h3,
+    #usuarios-container h3,
+    #setores-container h3 {
+      font-size: 1.45rem;
+    }
+
+    #dashboard-container .card-body.py-3 {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: .75rem !important;
+    }
+
+    #dashboard-container .card-body.py-3 > div {
+      width: 100%;
+      margin: 0 !important;
+    }
+
+    #dashboard-container .card-body.py-3 .form-control,
+    #dashboard-container .card-body.py-3 .form-select {
+      width: 100%;
+    }
+
+    #dashboard-container .card-body.py-3 .ms-auto {
+      grid-column: 1 / -1;
+    }
+
+    #dashboard-container .card-body.py-3 .ms-auto .btn {
+      width: 100%;
+    }
+
+    #mapa-calor {
+      height: 260px !important;
+    }
+
+    #mapa-calor-ampliado {
+      height: 68vh !important;
+    }
+
+    #graficoEvolucao,
+    #graficoOrgaos {
+      max-height: 230px !important;
+    }
+
+    /* Modais ocupam a largura útil e mantêm ações acessíveis. */
+    .modal-dialog,
+    .modal-dialog.modal-lg,
+    .modal-dialog.modal-xl {
+      width: auto;
+      max-width: none;
+      margin: .5rem;
+    }
+
+    .modal-content {
+      max-height: calc(100vh - 1rem);
+    }
+
+    .modal-header,
+    .modal-footer {
+      padding: .9rem 1rem;
+    }
+
+    .modal-title {
+      font-size: 1.1rem;
+    }
+
+    .modal-body {
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    .modal-footer {
+      flex-wrap: wrap;
+      gap: .5rem;
+    }
+
+    .modal-footer .btn {
+      flex: 1 1 100%;
+      margin: 0 !important;
+    }
+
+    #modalRelatorioDashboard .relatorio-escopo {
+      padding: .85rem !important;
+    }
+
+    /* Tabelas continuam completas, com rolagem horizontal controlada. */
+    .table-responsive {
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .table-responsive table {
+      min-width: 620px;
+    }
+
+    #lista-campos-globais {
+      display: block !important;
+    }
+
+    #lista-campos-globais > * {
+      margin-bottom: .65rem;
+    }
+  }
+
+  /* Tablet/desktop: aumenta espaço de leitura sem impor largura fixa. */
+  @media (min-width: 768px) {
+    .modal-dialog { margin-top: 1.75rem; margin-bottom: 1.75rem; }
+
+    /* Tablet e desktop: a busca aproveita a largura disponível em uma única linha. */
+    .prontuario-search-group {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      width: 100%;
+    }
+
+    .prontuario-search-group .input-group-text {
+      display: flex;
+    }
+
+    .prontuario-search-group #inputCpfProntuario {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .prontuario-search-group #btnBuscarProntuario,
+    .prontuario-search-group #btn-limpar-busca {
+      flex: 0 0 auto;
+    }
+  }
+
+  @media (max-width: 399.98px) {
+    #dashboard-container .card-body.py-3 {
+      grid-template-columns: 1fr;
+    }
+
+    #dashboard-container .card-body.py-3 .ms-auto {
+      grid-column: auto;
+    }
+
+    .brand-text {
+      font-size: .95rem;
+    }
+  }
+
+  @media print {
+    nav, #login-screen, #dash-loading, .btn, .modal { display: none !important; }
+    #dashboard-container { display: block !important; margin: 0 !important; max-width: none !important; }
+    #dash-content { display: block !important; }
+    .card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; }
+    #mapa-calor { height: 380px !important; }
   }
 </style>

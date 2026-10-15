@@ -1,0 +1,135 @@
+<script>
+  (function () {
+    function escapar(texto) {
+      return String(texto === null || texto === undefined ? '' : texto)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function contar(dados, chave) {
+      var resultado = {};
+      dados.forEach(function (item) {
+        var nome = chave(item) || 'Não informado';
+        resultado[nome] = (resultado[nome] || 0) + 1;
+      });
+      return resultado;
+    }
+
+    function montarTabela(titulo, valores) {
+      var linhas = Object.keys(valores).sort(function (a, b) { return valores[b] - valores[a]; });
+      var corpo = linhas.length ? linhas.map(function (nome) {
+        return '<tr><td>' + escapar(nome) + '</td><td>' + valores[nome] + '</td></tr>';
+      }).join('') : '<tr><td colspan="2">Sem dados no período selecionado.</td></tr>';
+      return '<section><h2>' + escapar(titulo) + '</h2><table><thead><tr><th>Categoria</th><th>Quantidade</th></tr></thead><tbody>' + corpo + '</tbody></table></section>';
+    }
+
+    function dadosComFiltrosAtuais() {
+      var ano = document.getElementById('filtro-ano').value;
+      var inicio = document.getElementById('filtro-data-inicio').value;
+      var fim = document.getElementById('filtro-data-fim').value;
+      return (window.dashDadosBrutos || []).filter(function (item) {
+        if (!item.data) return false;
+        var data = new Date(item.data);
+        if (ano && String(data.getFullYear()) !== ano) return false;
+        if (inicio && data < new Date(inicio + 'T00:00:00')) return false;
+        if (fim && data > new Date(fim + 'T23:59:59')) return false;
+        return true;
+      });
+    }
+
+    function prepararSelecaoDeSetor() {
+      var select = document.getElementById('relatorio-setor-especifico');
+      if (!select) return;
+      var valorAtual = select.value;
+      var setores = {};
+      (window.dashDadosBrutos || []).forEach(function (item) {
+        if (item.orgao) setores[String(item.orgao).trim()] = true;
+      });
+      select.innerHTML = '<option value="">Selecione um setor...</option>';
+      Object.keys(setores).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); }).forEach(function (setor) {
+        var opcao = document.createElement('option');
+        opcao.value = setor;
+        opcao.textContent = setor;
+        select.appendChild(opcao);
+      });
+      select.value = setores[valorAtual] ? valorAtual : '';
+    }
+
+    function atualizarControleDeSetor() {
+      var radioSetor = document.getElementById('relatorio-setor');
+      var select = document.getElementById('relatorio-setor-especifico');
+      if (select) select.disabled = !radioSetor || !radioSetor.checked;
+    }
+
+    function iniciarModalDeRelatorio() {
+      var modal = document.getElementById('modalRelatorioDashboard');
+      if (!modal) return;
+      modal.addEventListener('show.bs.modal', function () {
+        prepararSelecaoDeSetor();
+        atualizarControleDeSetor();
+      });
+      var radios = document.querySelectorAll('input[name="escopo-relatorio"]');
+      Array.prototype.forEach.call(radios, function (radio) {
+        radio.addEventListener('change', atualizarControleDeSetor);
+      });
+      var seletorDeSetor = document.getElementById('relatorio-setor-especifico');
+      if (seletorDeSetor) {
+        seletorDeSetor.addEventListener('focus', function () {
+          document.getElementById('relatorio-setor').checked = true;
+          atualizarControleDeSetor();
+        });
+        seletorDeSetor.addEventListener('change', function () {
+          document.getElementById('relatorio-setor').checked = true;
+          atualizarControleDeSetor();
+        });
+      }
+    }
+
+    window.gerarRelatorioDashboard = function () {
+      var radio = document.querySelector('input[name="escopo-relatorio"]:checked');
+      var escopo = radio ? radio.value : 'rede';
+      var setor = document.getElementById('relatorio-setor-especifico').value;
+      if (escopo === 'setor' && !setor) {
+        Swal.fire('Selecione um setor', 'Escolha o setor ou secretaria para gerar o relatório.', 'warning');
+        return;
+      }
+
+      var dados = dadosComFiltrosAtuais();
+      if (escopo === 'setor') {
+        dados = dados.filter(function (item) { return String(item.orgao || '').trim().toLowerCase() === setor.toLowerCase(); });
+      }
+      var vitimas = {};
+      dados.forEach(function (item, indice) { vitimas[item.idVitima || ('sem-id-' + indice)] = true; });
+      var filtro = document.getElementById('filtro-ano').value || 'Todos os anos';
+      var periodo = filtro + (document.getElementById('filtro-data-inicio').value ? ' · De ' + document.getElementById('filtro-data-inicio').value : '') + (document.getElementById('filtro-data-fim').value ? ' · Até ' + document.getElementById('filtro-data-fim').value : '');
+      var escopoTexto = escopo === 'setor' ? 'Setor responsável: ' + setor : 'Rede completa';
+      var meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      var porMes = contar(dados, function (item) { return item.data ? meses[new Date(item.data).getMonth()] : 'Data não informada'; });
+      var janela = window.open('', '_blank');
+      if (!janela) {
+        Swal.fire('Permita pop-ups', 'Libere pop-ups no navegador para gerar o relatório.', 'warning');
+        return;
+      }
+
+      var html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório Gerencial RPM</title><style>' +
+        '@page{size:A4;margin:16mm}body{font-family:Arial,sans-serif;color:#1f2937;font-size:12px}h1{color:#07366b;margin:0 0 5px}h2{color:#07366b;font-size:14px;margin:22px 0 8px;border-bottom:1px solid #dbe3ef;padding-bottom:4px}.sub{color:#4b5563;margin:4px 0}.cards{display:flex;gap:12px;margin:18px 0}.card{flex:1;border:1px solid #cbd5e1;border-radius:6px;padding:12px}.card strong{display:block;font-size:24px;color:#07366b}table{width:100%;border-collapse:collapse}th{background:#07366b;color:#fff;text-align:left}th,td{padding:7px 8px;border:1px solid #dbe3ef}td:last-child,th:last-child{text-align:center;width:110px}footer{margin-top:24px;padding-top:8px;border-top:1px solid #dbe3ef;color:#6b7280;font-size:10px}@media print{.acao{display:none}}' +
+        '</style></head><body><button class="acao" onclick="window.print()">Imprimir</button><h1>Relatório Gerencial — RPM Votorantim</h1><p class="sub">' + escapar(escopoTexto) + ' · Gerado em ' + escapar(new Date().toLocaleString('pt-BR')) + '</p><p class="sub"><strong>Filtros aplicados:</strong> ' + escapar(periodo) + '</p><div class="cards"><div class="card">Atendimentos<strong>' + dados.length + '</strong></div><div class="card">Vítimas únicas<strong>' + Object.keys(vitimas).length + '</strong></div><div class="card">Setores envolvidos<strong>' + Object.keys(contar(dados, function (item) { return item.orgao; })).length + '</strong></div></div>' +
+        montarTabela('Atendimentos por setor / órgão', contar(dados, function (item) { return item.orgao; })) +
+        montarTabela('Evolução mensal de atendimentos', porMes) +
+        montarTabela('Distribuição territorial por bairro', contar(dados, function (item) { return item.bairro; })) +
+        '<footer>Documento consolidado para análise gerencial. Não contém identificação individual, CPF ou endereço das vítimas.</footer></body></html>';
+      janela.document.open();
+      janela.document.write(html);
+      janela.document.close();
+      setTimeout(function () { janela.focus(); janela.print(); }, 300);
+      var modal = bootstrap.Modal.getInstance(document.getElementById('modalRelatorioDashboard'));
+      if (modal) modal.hide();
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', iniciarModalDeRelatorio);
+    } else {
+      iniciarModalDeRelatorio();
+    }
+  }());
+</script>

@@ -2,6 +2,8 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8">
+    <!-- Imprescindível para que o CSS use a largura real do celular, não uma tela desktop reduzida. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <base target="_top">
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -72,7 +74,7 @@
           </a>
           
           <!-- Botões de Navegação (Tabs) -->
-          <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+          <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Abrir menu de navegação">
             <i class="bi bi-list fs-1 text-secondary"></i>
           </button>
           
@@ -102,7 +104,7 @@
               <span id="nav-user-name" class="fw-bold" style="font-size: 0.9rem; color: var(--azul-institucional);">Carregando...</span>
               <span id="nav-user-sector" class="small" style="font-size: 0.8rem;">---</span>
             </div>
-            <button class="btn btn-sm btn-outline-danger" onclick="fazerLogout()" title="Sair da conta">
+            <button class="btn btn-sm btn-outline-danger" onclick="fazerLogout()" title="Sair da conta" aria-label="Sair da conta">
               <i class="bi bi-box-arrow-right"></i>
             </button>
           </div>
@@ -139,9 +141,10 @@
               <p class="card-text text-muted small mb-3">Pesquise pelo CPF para verificar o histórico da vítima em toda a rede municipal.</p>
               <div class="row g-2">
                 <div class="col-md-6 col-lg-5">
-                  <div class="input-group">
+                  <label class="visually-hidden" for="inputCpfProntuario">CPF da vítima</label>
+                  <div class="input-group prontuario-search-group" role="search" aria-label="Pesquisar prontuário por CPF">
                     <span class="input-group-text bg-light"><i class="bi bi-person-vcard"></i></span>
-                    <input type="text" class="form-control" id="inputCpfProntuario" maxlength="14" autocomplete="off" placeholder="XXX.XXX.XXX-XX" oninput="mascaraCPFAlfanumerico(event)">
+                    <input type="text" class="form-control" id="inputCpfProntuario" maxlength="14" autocomplete="off" placeholder="Digite o CPF: XXX.XXX.XXX-XX" aria-label="CPF da vítima" oninput="mascaraCPFAlfanumerico(event)">
                     <button class="btn btn-primary" type="button" id="btnBuscarProntuario" onclick="pesquisarProntuarioHome()">
                       Buscar Histórico
                     </button>
@@ -322,16 +325,22 @@
                       <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="inputOutroBeneficio" onchange="atualizarVisibilidadeBeneficios('input')"><label class="form-check-label" for="inputOutroBeneficio">Outro benefício social</label></div></div>
                       <div class="col-12 d-none" id="input-outro-beneficio-container">
                         <label class="form-label text-muted fw-semibold">Qual outro benefício?</label>
-                        <input type="text" class="form-control" id="inputOutroBeneficioDescricao" name="Descrição de Outro Benefício Social" maxlength="250" list="lista-outros-beneficios" placeholder="Selecione ou informe outro benefício" onblur="normalizarDescricaoOutro(this)">
-                        <small class="text-muted">Se houver mais de um, separe-os por ponto e vírgula (;).</small>
-                        <datalist id="lista-outros-beneficios">
-                          <option value="Pé-de-Meia">
-                          <option value="Gás do Povo">
-                          <option value="Tarifa Social de Energia Elétrica">
-                          <option value="Tarifa Social de Água e Esgoto">
-                          <option value="Auxílio-Inclusão">
-                          <option value="Seguro-Defeso">
-                        </datalist>
+                        <div id="input-outro-beneficio-tags" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <select class="form-select mb-2" id="inputOutroBeneficioSugestao" onchange="adicionarBeneficioOutroDaLista('input')">
+                          <option value="">Adicionar programa da lista...</option>
+                          <option value="Pé-de-Meia">Pé-de-Meia</option>
+                          <option value="Gás do Povo">Gás do Povo</option>
+                          <option value="Tarifa Social de Energia Elétrica">Tarifa Social de Energia Elétrica</option>
+                          <option value="Tarifa Social de Água e Esgoto">Tarifa Social de Água e Esgoto</option>
+                          <option value="Auxílio-Inclusão">Auxílio-Inclusão</option>
+                          <option value="Seguro-Defeso">Seguro-Defeso</option>
+                        </select>
+                        <div class="input-group">
+                          <input type="text" class="form-control" id="inputOutroBeneficioTexto" maxlength="250" placeholder="Digite outro benefício e pressione Enter" onkeydown="adicionarBeneficioOutroPorTecla(event, 'input')">
+                          <button class="btn btn-outline-primary" type="button" onclick="adicionarBeneficioOutroDigitado('input')">Adicionar</button>
+                        </div>
+                        <input type="hidden" id="inputOutroBeneficioDescricao" name="Descrição de Outro Benefício Social">
+                        <small class="text-muted">Escolha quantos programas forem necessários ou digite outro benefício.</small>
                       </div>
                     </div>
                   </div>
@@ -483,8 +492,22 @@
                       <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="cad_outro_beneficio" onchange="atualizarVisibilidadeBeneficios('cad')"><label class="form-check-label small" for="cad_outro_beneficio">Outro benefício social</label></div></div>
                       <div class="col-12 d-none" id="cad-outro-beneficio-container">
                         <label class="form-label small">Qual outro benefício?</label>
-                        <input type="text" class="form-control form-control-sm" id="cad_outro_beneficio_descricao" name="Descrição de Outro Benefício Social" maxlength="250" list="lista-outros-beneficios" placeholder="Selecione ou informe outro benefício" onblur="normalizarDescricaoOutro(this)">
-                        <small class="text-muted">Se houver mais de um, separe-os por ponto e vírgula (;).</small>
+                        <div id="cad-outro-beneficio-tags" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <select class="form-select form-select-sm mb-2" id="cad_outro_beneficio_sugestao" onchange="adicionarBeneficioOutroDaLista('cad')">
+                          <option value="">Adicionar programa da lista...</option>
+                          <option value="Pé-de-Meia">Pé-de-Meia</option>
+                          <option value="Gás do Povo">Gás do Povo</option>
+                          <option value="Tarifa Social de Energia Elétrica">Tarifa Social de Energia Elétrica</option>
+                          <option value="Tarifa Social de Água e Esgoto">Tarifa Social de Água e Esgoto</option>
+                          <option value="Auxílio-Inclusão">Auxílio-Inclusão</option>
+                          <option value="Seguro-Defeso">Seguro-Defeso</option>
+                        </select>
+                        <div class="input-group input-group-sm">
+                          <input type="text" class="form-control" id="cad_outro_beneficio_texto" maxlength="250" placeholder="Digite outro benefício e pressione Enter" onkeydown="adicionarBeneficioOutroPorTecla(event, 'cad')">
+                          <button class="btn btn-outline-primary" type="button" onclick="adicionarBeneficioOutroDigitado('cad')">Adicionar</button>
+                        </div>
+                        <input type="hidden" id="cad_outro_beneficio_descricao" name="Descrição de Outro Benefício Social">
+                        <small class="text-muted">Escolha quantos programas forem necessários ou digite outro benefício.</small>
                       </div>
                     </div>
                   </div>
@@ -516,6 +539,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <?!= include('scripts'); ?>
     <?!= include('dashboard-scripts'); ?>
+    <?!= include('dashboard-filtros-scripts'); ?>
+    <?!= include('relatorio-scripts'); ?>
     <?!= include('admin-usuarios-scripts'); ?>
   </body>
 </html>

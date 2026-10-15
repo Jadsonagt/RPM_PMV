@@ -696,19 +696,31 @@ function obterDadosDashboard(tokenSessao) {
     const abaVitimas = db.getSheetByName('VITIMAS') || db.getSheetByName('VÍTIMAS');
     
     // Passo 1: Construir o Dicionário de Bairros (ID_Vitima -> Bairro)
-    const mapaBairros = {};
+    const mapaVitimas = {};
     if (abaVitimas) {
       const dadosVitimas = abaVitimas.getDataRange().getValues();
       const cabecalhoVitimas = dadosVitimas[0];
       const indexIdVitimaV = Math.max(cabecalhoVitimas.indexOf('ID_Vitima'), cabecalhoVitimas.indexOf('ID_Vítima'));
       const indexBairroVitima = cabecalhoVitimas.indexOf('Bairro');
+      const indexCepVitima = cabecalhoVitimas.indexOf('CEP');
+      const indexLogradouroVitima = cabecalhoVitimas.indexOf('Logradouro');
+      const indexNumeroVitima = cabecalhoVitimas.indexOf('Número');
       
       if (indexIdVitimaV > -1 && indexBairroVitima > -1) {
         for (let i = 1; i < dadosVitimas.length; i++) {
           let idV = dadosVitimas[i][indexIdVitimaV];
           let bairro = dadosVitimas[i][indexBairroVitima];
-          if (idV && bairro) {
-            mapaBairros[idV] = String(bairro).trim();
+          if (idV) {
+            mapaVitimas[String(idV).trim()] = {
+              bairro: bairro ? String(bairro).trim() : '',
+              endereco: [
+                indexLogradouroVitima > -1 ? dadosVitimas[i][indexLogradouroVitima] : '',
+                indexNumeroVitima > -1 ? dadosVitimas[i][indexNumeroVitima] : '',
+                bairro,
+                indexCepVitima > -1 ? dadosVitimas[i][indexCepVitima] : '',
+                'Votorantim - SP'
+              ].filter(Boolean).join(', ')
+            };
           }
         }
       }
@@ -751,8 +763,8 @@ function obterDadosDashboard(tokenSessao) {
         idVitima = row[indexIdVitimaAtendimento] ? String(row[indexIdVitimaAtendimento]).trim() : '';
         if (idVitima) {
           setVitimasUnicas.add(idVitima);
-          if (mapaBairros[idVitima]) {
-            bairroVitima = mapaBairros[idVitima];
+          if (mapaVitimas[idVitima]) {
+            bairroVitima = mapaVitimas[idVitima].bairro;
           }
         }
       }
@@ -761,9 +773,25 @@ function obterDadosDashboard(tokenSessao) {
           data: dataIsoString,
           orgao: orgao,
           idVitima: idVitima,
-          bairro: bairroVitima
+          bairro: bairroVitima,
+          enderecoMapa: idVitima && mapaVitimas[idVitima] ? mapaVitimas[idVitima].endereco : ''
       });
     }
+
+    const coordenadasPorVitima = {};
+    Array.from(setVitimasUnicas).forEach(function(idVitima) {
+      coordenadasPorVitima[idVitima] = mapaVitimas[idVitima]
+        ? geocodificarEnderecoDashboard_(idVitima, mapaVitimas[idVitima].endereco)
+        : null;
+    });
+    arrayDeAtendimentos.forEach(function(atendimento) {
+      const coordenada = coordenadasPorVitima[atendimento.idVitima];
+      if (coordenada) {
+        atendimento.latitude = coordenada.latitude;
+        atendimento.longitude = coordenada.longitude;
+      }
+      delete atendimento.enderecoMapa;
+    });
 
     return {
       totalVitimas: setVitimasUnicas.size,
@@ -774,6 +802,73 @@ function obterDadosDashboard(tokenSessao) {
   } catch (error) {
     return { erro: "Erro ao processar métricas: " + error.message };
   }
+}
+
+function obterPerfisFiltrosDashboard(tokenSessao) {
+  try {
+    const sessao = obterSessaoValida(tokenSessao);
+    const nivel = String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').toLowerCase();
+    if (['admin', 'diretoria', 'secretario', 'secretário'].indexOf(nivel) < 0) return { erro: 'Acesso negado.' };
+    const db = conectarBanco();
+    const aba = db.getSheetByName('VITIMAS') || db.getSheetByName('VÍTIMAS');
+    if (!aba) return { perfis: {} };
+    const dados = aba.getDataRange().getValues();
+    if (dados.length < 2) return { perfis: {} };
+    const cabecalho = dados[0];
+    const indiceId = Math.max(cabecalho.indexOf('ID_Vitima'), cabecalho.indexOf('ID_Vítima'));
+    if (indiceId < 0) return { perfis: {} };
+    const indiceIdade = cabecalho.indexOf('Idade');
+    const indiceRaca = cabecalho.indexOf('Raça/Cor');
+    const colunasBeneficios = {
+      'Bolsa Família': cabecalho.indexOf('Bolsa Família'),
+      'BPC': cabecalho.indexOf('BPC'),
+      'Aluguel Social Municipal': cabecalho.indexOf('Aluguel Social Municipal'),
+      'Aluguel Social Estadual': cabecalho.indexOf('Aluguel Social Estadual'),
+      'Outro benefício social': cabecalho.indexOf('Outro Benefício Social')
+    };
+    const indicePossui = cabecalho.indexOf('Possui Benefício Social');
+    const perfis = {};
+    for (let i = 1; i < dados.length; i++) {
+      const id = dados[i][indiceId];
+      if (!id) continue;
+      const beneficios = Object.keys(colunasBeneficios).filter(function(nome) {
+        const indice = colunasBeneficios[nome];
+        return indice > -1 && String(dados[i][indice]).trim().toLowerCase() === 'sim';
+      });
+      if (!beneficios.length && indicePossui > -1 && String(dados[i][indicePossui]).trim().toLowerCase() === 'sim') beneficios.push('Benefício social não especificado');
+      perfis[String(id).trim()] = {
+        idade: indiceIdade > -1 ? Number(dados[i][indiceIdade]) || null : null,
+        racaCor: indiceRaca > -1 ? String(dados[i][indiceRaca] || '').trim() : '',
+        beneficios: beneficios
+      };
+    }
+    return { perfis: perfis };
+  } catch (erro) {
+    return { erro: 'Não foi possível carregar os filtros: ' + erro.message, perfis: {} };
+  }
+}
+
+function geocodificarEnderecoDashboard_(idVitima, endereco) {
+  if (!endereco) return null;
+  const cache = CacheService.getScriptCache();
+  const chave = 'dashboard-coord-' + idVitima;
+  const salvo = cache.get(chave);
+  if (salvo) {
+    try { return JSON.parse(salvo); } catch (e) {}
+  }
+
+  try {
+    const resultado = Maps.newGeocoder().setRegion('br').geocode(endereco);
+    if (resultado.status === 'OK' && resultado.results && resultado.results.length) {
+      const local = resultado.results[0].geometry.location;
+      const coordenada = { latitude: local.lat, longitude: local.lng };
+      cache.put(chave, JSON.stringify(coordenada), 21600);
+      return coordenada;
+    }
+  } catch (e) {
+    console.warn('Não foi possível geocodificar vítima ' + idVitima + ': ' + e.message);
+  }
+  return null;
 }
 
 // ---- MÓDULO DE GESTÃO DE USUÁRIOS (ADMIN) ----

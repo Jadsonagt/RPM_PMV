@@ -3,6 +3,10 @@
   let chartEvolucao = null;
   window.mapaLeaflet = null;
   window.heatLayer = null;
+  window.bairroMarkers = null;
+  window.mapaLeafletAmpliado = null;
+  window.heatLayerAmpliado = null;
+  window.dashHeatData = [];
   window.dashDadosBrutos = [];
 
   const coordsBairros = {
@@ -10,7 +14,7 @@
     'Itapeva': [-23.5250, -47.4200], 'Pró-Morar': [-23.5450, -47.4500], 'Parque Bela Vista': [-23.5300, -47.4450],
     'Jardim Clarice': [-23.5500, -47.4480], 'Rio Acima': [-23.5200, -47.4100], 'Vila Garcia': [-23.5600, -47.4600],
     'Jardim São Lucas': [-23.5480, -47.4560], 'Jardim Tatian': [-23.5420, -47.4600], 'Parque Jataí': [-23.5520, -47.4300],
-    'Vila Domingues': [-23.5340, -47.4310], 'Vila Nova Votorantim': [-23.5370, -47.4350], 'Mirante dos Óvnis': [-23.5550, -47.4500]
+    'Vila Domingues': [-23.5340, -47.4310], 'Vila Nova Votorantim': [-23.5378835, -47.4152738], 'Mirante dos Óvnis': [-23.5550, -47.4500]
   };
 
   const nomeMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -18,6 +22,20 @@
   function normalizar(texto) {
     if (!texto) return '';
     return String(texto).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  }
+
+  function opcoesMapaCalor(mapa) {
+    return {
+      radius: 25,
+      blur: 15,
+      // Com zero, o Leaflet não reduz a intensidade ao afastar o zoom.
+      maxZoom: 0
+    };
+  }
+
+  function redesenharCalor(mapa, nomeDaCamada, dados) {
+    if (window[nomeDaCamada]) mapa.removeLayer(window[nomeDaCamada]);
+    window[nomeDaCamada] = L.heatLayer(dados, opcoesMapaCalor(mapa)).addTo(mapa);
   }
 
   function preencherFiltroAno() {
@@ -204,27 +222,68 @@
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
               maxZoom: 19, attribution: '© OpenStreetMap'
           }).addTo(window.mapaLeaflet);
+          window.mapaLeaflet.on('zoomend', function() {
+            if (window.dashHeatData.length) {
+              redesenharCalor(window.mapaLeaflet, 'heatLayer', window.dashHeatData);
+            }
+          });
       }
 
-      if (window.heatLayer) window.mapaLeaflet.removeLayer(window.heatLayer);
+      const pontosSemCoordenada = [];
+      const heatData = dados.reduce((pontos, item, indice) => {
+        const lat = Number(item.latitude);
+        const lng = Number(item.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          pontosSemCoordenada.push(item.bairro || 'endereço não informado');
+          return pontos;
+        }
 
-      let heatData = [];
-      dados.forEach(item => {
-          let bairroPlanilha = normalizar(item.bairro);
-          if(!bairroPlanilha) return;
-          
-          let keyEncontrada = Object.keys(coordsBairros).find(k => {
-              let bDict = normalizar(k);
-              return bairroPlanilha === bDict || bairroPlanilha.includes(bDict) || bDict.includes(bairroPlanilha);
-          });
-          if (keyEncontrada) {
-              let [lat, lng] = coordsBairros[keyEncontrada];
-              heatData.push([lat, lng, 10]);
-          }
-      });
+        // Deslocamento determinístico de aproximadamente 30 a 80 metros: protege a residência
+        // sem esconder o local onde a ocorrência se concentra.
+        const chave = String(item.idVitima || indice);
+        const hash = Array.from(chave).reduce((total, caractere) => total + caractere.charCodeAt(0), 0);
+        const raio = 0.00028 + (hash % 40) / 100000;
+        const angulo = (hash * 137.508) * Math.PI / 180;
+        pontos.push([
+          lat + Math.sin(angulo) * raio,
+          lng + Math.cos(angulo) * raio,
+          1
+        ]);
+        return pontos;
+      }, []);
 
-      window.heatLayer = L.heatLayer(heatData, {radius: 25, blur: 15, maxZoom: 15}).addTo(window.mapaLeaflet);
+      redesenharCalor(window.mapaLeaflet, 'heatLayer', heatData);
+      const info = document.getElementById('mapa-calor-info');
+      if (info) {
+          info.textContent = pontosSemCoordenada.length
+            ? `${heatData.length} de ${dados.length} atendimento(s) localizado(s). Sem coordenada: ${[...new Set(pontosSemCoordenada)].join(', ')}.`
+            : `${heatData.length} atendimento(s) localizado(s), com variação de privacidade.`;
+      }
+      window.dashHeatData = heatData;
       
       setTimeout(() => { window.mapaLeaflet.invalidateSize(); }, 400);
   }
+
+  window.abrirMapaAmpliado = function() {
+    const modalEl = document.getElementById('modalMapaAmpliado');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalEl.addEventListener('shown.bs.modal', function() {
+      if (!window.mapaLeafletAmpliado) {
+        window.mapaLeafletAmpliado = L.map('mapa-calor-ampliado').setView([-23.5365, -47.4381], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap'
+        }).addTo(window.mapaLeafletAmpliado);
+        window.mapaLeafletAmpliado.on('zoomend', function() {
+          if (window.dashHeatData.length) {
+            redesenharCalor(window.mapaLeafletAmpliado, 'heatLayerAmpliado', window.dashHeatData);
+          }
+        });
+      }
+      redesenharCalor(window.mapaLeafletAmpliado, 'heatLayerAmpliado', window.dashHeatData);
+      window.mapaLeafletAmpliado.invalidateSize();
+    }, { once: true });
+    modal.show();
+  };
+
 </script>
