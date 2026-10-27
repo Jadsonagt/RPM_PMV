@@ -1,0 +1,100 @@
+<script>
+  window.acompanhamentosControleSocial = [];
+  window.filtroCpfControleSocial = '';
+
+  function escaparControleSocial(valor) {
+    return String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function carregarAcompanhamentoControleSocial(cpfFiltro) {
+    const loading = document.getElementById('controle-social-loading');
+    const lista = document.getElementById('controle-social-lista');
+    const resumo = document.getElementById('controle-social-resumo');
+    if (loading) loading.classList.remove('d-none');
+    if (lista) lista.classList.add('d-none');
+    if (resumo) resumo.classList.add('d-none');
+    window.filtroCpfControleSocial = String(cpfFiltro || '').replace(/\D/g, '');
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if (loading) loading.classList.add('d-none');
+        if (!resposta || resposta.erro) {
+          Swal.fire('Acesso restrito', resposta && resposta.erro ? resposta.erro : 'Não foi possível carregar os acompanhamentos.', 'warning');
+          return;
+        }
+        window.acompanhamentosControleSocial = resposta.itens || [];
+        const tituloSetor = document.getElementById('nav-user-sector');
+        if (tituloSetor && resposta.setor) tituloSetor.textContent = resposta.setor;
+        filtrarAcompanhamentosControleSocial();
+      })
+      .withFailureHandler(function(erro) {
+        if (loading) loading.classList.add('d-none');
+        Swal.fire('Erro no servidor', String(erro), 'error');
+      })
+      .obterAcompanhamentosControleSocial(obterTokenSessao(), window.filtroCpfControleSocial);
+  }
+
+  function aoDigitarBuscaControleSocial() {
+    const campo = document.getElementById('controle-social-busca');
+    const cpf = String(campo && campo.value || '').replace(/\D/g, '');
+    if (cpf.length === 11 && cpf !== window.filtroCpfControleSocial) {
+      carregarAcompanhamentoControleSocial(cpf);
+      return;
+    }
+    if (window.filtroCpfControleSocial && cpf.length !== 11) {
+      carregarAcompanhamentoControleSocial();
+      return;
+    }
+    filtrarAcompanhamentosControleSocial();
+  }
+
+  function atualizarAcompanhamentoControleSocial() {
+    const campo = document.getElementById('controle-social-busca');
+    const cpf = String(campo && campo.value || '').replace(/\D/g, '');
+    carregarAcompanhamentoControleSocial(cpf.length === 11 ? cpf : '');
+  }
+
+  function filtrarAcompanhamentosControleSocial() {
+    const buscaDigitada = String(document.getElementById('controle-social-busca').value || '').trim();
+    const busca = /\D/.test(buscaDigitada) ? buscaDigitada.toLocaleLowerCase('pt-BR') : '';
+    const periodo = Number(document.getElementById('controle-social-periodo').value || 0);
+    const limite = periodo ? Date.now() - (periodo * 24 * 60 * 60 * 1000) : 0;
+    const itens = window.acompanhamentosControleSocial.filter(function(item) {
+      if (busca && String(item.nome || '').toLocaleLowerCase('pt-BR').indexOf(busca) < 0) return false;
+      return !limite || (item.ultimaEvolucao && item.ultimaEvolucao.dataRaw >= limite);
+    });
+    const lista = document.getElementById('controle-social-lista');
+    const resumo = document.getElementById('controle-social-resumo');
+    if (resumo) {
+      resumo.textContent = itens.length + (itens.length === 1 ? ' pessoa acompanhada pelo seu órgão.' : ' pessoas acompanhadas pelo seu órgão.');
+      resumo.classList.remove('d-none');
+    }
+    if (!lista) return;
+    lista.innerHTML = itens.length ? itens.map(function(item) {
+      const indice = window.acompanhamentosControleSocial.indexOf(item);
+      const detalhes = [item.idade ? 'Idade: ' + escaparControleSocial(item.idade) : '', item.bairro ? 'Bairro: ' + escaparControleSocial(item.bairro) : ''].filter(Boolean).join(' <span class="mx-1">•</span> ');
+      return `<div class="col-12 col-lg-6"><div class="card h-100 border" style="background:#ffffff;border-color:#e5e9ef!important;box-shadow:0 .35rem 1rem rgba(15,23,42,.08)!important"><div class="card-body"><div class="d-flex justify-content-between gap-3"><div><h5 class="text-primary mb-1"><i class="bi bi-person-lines-fill me-2"></i>${escaparControleSocial(item.nome)}</h5><p class="small text-muted mb-3">${detalhes || 'Dados cadastrais não informados'}</p></div><span class="badge text-bg-light align-self-start">${item.totalEvolucoes} evolução(ões)</span></div><div class="rounded p-3 mb-3" style="background:#f8fafc;border:1px solid #e7edf3"><div class="small text-muted mb-1">Última evolução</div><div class="fw-semibold">${escaparControleSocial(item.ultimaEvolucao.data)}</div><div class="small mt-1">${escaparControleSocial(item.ultimaEvolucao.resumo)}</div></div><button type="button" class="btn btn-outline-primary btn-sm" onclick="abrirAcompanhamentoControleSocial(${indice})"><i class="bi bi-clipboard2-check me-1"></i>Ver acompanhamento</button></div></div></div>`;
+    }).join('') : '<div class="col-12"><div class="alert alert-light border text-center text-muted mb-0">Nenhum acompanhamento encontrado com os filtros informados.</div></div>';
+    lista.classList.remove('d-none');
+  }
+
+  function abrirAcompanhamentoControleSocial(indice) {
+    const item = window.acompanhamentosControleSocial[indice];
+    if (!item) return;
+    const evolucoes = (item.evolucoes || []).map(function(evolucao, indiceEvolucao) {
+      return `<div class="border rounded p-3 mb-3 text-start"><div class="d-flex justify-content-between gap-3"><strong><i class="bi bi-calendar-event me-2"></i>${escaparControleSocial(evolucao.data)}</strong><span class="badge text-bg-secondary">Evolução</span></div><div class="mt-2">${escaparControleSocial(evolucao.resumo)}</div><button type="button" class="btn btn-outline-primary btn-sm mt-3" onclick="verDetalhesEvolucaoControleSocial(${indice}, ${indiceEvolucao})">Ver detalhes</button></div>`;
+    }).join('');
+    Swal.fire({ title: escaparControleSocial(item.nome), html: `<div class="text-start"><p class="text-muted">Histórico registrado pelo seu órgão.</p>${evolucoes || '<p>Nenhuma evolução registrada.</p>'}</div>`, width: 820, confirmButtonText: 'Fechar' });
+  }
+
+  function verDetalhesEvolucaoControleSocial(indiceItem, indiceEvolucao) {
+    const item = window.acompanhamentosControleSocial[indiceItem];
+    const evolucao = item && item.evolucoes ? item.evolucoes[indiceEvolucao] : null;
+    if (!evolucao) return;
+    const campos = (evolucao.detalhes || []).map(function(detalhe) {
+      const grande = detalhe.tipo === 'textarea';
+      const controle = grande ? `<textarea class="form-control" rows="3" readonly>${escaparControleSocial(detalhe.valor)}</textarea>` : `<input class="form-control" value="${escaparControleSocial(detalhe.valor)}" readonly>`;
+      return `<div class="${grande ? 'col-12' : 'col-md-6'} text-start"><label class="form-label fw-semibold">${escaparControleSocial(detalhe.rotulo)}</label>${controle}</div>`;
+    }).join('');
+    Swal.fire({ title: 'Detalhes da evolução', html: `<div class="text-start"><div class="border-bottom pb-2 mb-3 text-secondary fw-semibold">Informações registradas pelo órgão</div><div class="row g-3">${campos || '<div class="col-12 text-muted">Não há detalhes adicionais nesta evolução.</div>'}</div></div>`, width: 800, confirmButtonText: 'Voltar' }).then(function() { abrirAcompanhamentoControleSocial(indiceItem); });
+  }
+</script>

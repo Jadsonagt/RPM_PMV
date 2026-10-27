@@ -5,6 +5,29 @@
     return sessionStorage.getItem('rpm_session') || '';
   }
 
+  function perfilSomenteLeituraAtual() {
+    const nivel = String(window.usuarioAtual && (window.usuarioAtual.nivelAcesso || window.usuarioAtual.nivel) || '').trim().toLowerCase();
+    return ['observador', 'observador/controle social'].includes(nivel);
+  }
+
+  function perfilObservadorAtual() {
+    return String(window.usuarioAtual && (window.usuarioAtual.nivelAcesso || window.usuarioAtual.nivel) || '').trim().toLowerCase() === 'observador';
+  }
+
+  function perfilControleSocialAtual() {
+    return String(window.usuarioAtual && (window.usuarioAtual.nivelAcesso || window.usuarioAtual.nivel) || '').trim().toLowerCase() === 'observador/controle social';
+  }
+
+  function podeAcessarAcompanhamentoAtual() {
+    const nivel = String(window.usuarioAtual && (window.usuarioAtual.nivelAcesso || window.usuarioAtual.nivel) || '').trim().toLowerCase();
+    return ['admin', 'gestor', 'observador/controle social', 'desenvolvimento'].includes(nivel);
+  }
+
+  function usuarioPodeCorrigirCpf() {
+    const nivel = String(window.usuarioAtual && (window.usuarioAtual.nivelAcesso || window.usuarioAtual.nivel) || '').trim().toLowerCase();
+    return ['admin', 'ti', 'gestor', 'desenvolvimento'].includes(nivel);
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
     // Limpa credenciais deixadas por versões anteriores do sistema.
     localStorage.removeItem('rpm_email');
@@ -62,17 +85,76 @@
       .validarLoginManual(email, senha);
   }
 
+  function abrirRecuperacaoSenha() {
+    const campo = document.getElementById('recuperar-email');
+    const emailLogin = document.getElementById('login-email');
+    if (campo && emailLogin) campo.value = emailLogin.value || '';
+    new bootstrap.Modal(document.getElementById('modalRecuperarSenha')).show();
+  }
+
+  function solicitarRecuperacaoSenha() {
+    const campo = document.getElementById('recuperar-email');
+    const btn = document.getElementById('btn-recuperar-senha');
+    const email = campo ? campo.value.trim() : '';
+    if (!email) { if (campo) campo.focus(); return; }
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        const modal = bootstrap.Modal.getInstance(document.getElementById('modalRecuperarSenha'));
+        if (modal) modal.hide();
+        Swal.fire('Solicitação recebida', resposta.mensagem, 'info');
+      })
+      .withFailureHandler(function() {
+        btn.disabled = false;
+        Swal.fire('Solicitação recebida', 'Se houver uma conta vinculada a este e-mail, enviaremos as instruções.', 'info');
+      })
+      .solicitarRedefinicaoSenha(email);
+  }
+
+  function confirmarTrocaSenhaObrigatoria() {
+    const nova = document.getElementById('nova-senha-obrigatoria').value;
+    const confirmar = document.getElementById('confirmar-senha-obrigatoria').value;
+    const btn = document.getElementById('btn-trocar-senha-obrigatoria');
+    if (nova.length < 10) { Swal.fire('Senha fraca', 'Use pelo menos 10 caracteres.', 'warning'); return; }
+    if (nova !== confirmar) { Swal.fire('Senhas diferentes', 'Confira a confirmação da nova senha.', 'warning'); return; }
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btn.disabled = false;
+        if (!resposta.sucesso) { Swal.fire('Erro', resposta.erro, 'error'); return; }
+        window.usuarioAtual.trocaSenhaObrigatoria = 'NAO';
+        const modal = bootstrap.Modal.getInstance(document.getElementById('modalTrocaSenhaObrigatoria'));
+        if (modal) modal.hide();
+        Swal.fire('Senha atualizada', 'Sua nova senha foi salva.', 'success');
+      })
+      .withFailureHandler(function(erro) { btn.disabled = false; Swal.fire('Erro', String(erro), 'error'); })
+      .alterarMinhaSenha(nova, obterTokenSessao());
+  }
+
   function fazerLogout() {
     const tokenSessao = sessionStorage.getItem('rpm_session');
     if (tokenSessao) google.script.run.encerrarSessao(tokenSessao);
     sessionStorage.clear();
     window.usuarioAtual = null;
+    if (typeof window.dashboardDadosCarregados !== 'undefined') window.dashboardDadosCarregados = false;
+    if (typeof window.dashPerfis !== 'undefined') window.dashPerfis = null;
+    if (typeof window.dashDadosBrutos !== 'undefined') window.dashDadosBrutos = [];
     
     // Retorna para a tela de login via SPA (evita bugs de redirecionamento em iframe)
     const appContainer = document.getElementById('app-container');
     const loginScreen = document.getElementById('login-screen');
     
     if (appContainer) appContainer.classList.add('d-none');
+    const formLogin = document.getElementById('formLogin');
+    const btnLogin = document.getElementById('btn-login');
+    const erroLogin = document.getElementById('login-error');
+    if (formLogin) formLogin.reset();
+    if (btnLogin) {
+      btnLogin.disabled = false;
+      btnLogin.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Entrar';
+    }
+    if (erroLogin) erroLogin.classList.add('d-none');
     
     if (loginScreen) {
       loginScreen.classList.remove('d-none');
@@ -97,9 +179,26 @@
 
       if (resposta && resposta.autenticado) {
         window.usuarioAtual = resposta;
+        const perfilSomenteLeitura = perfilSomenteLeituraAtual();
+
+        // Este perfil somente confirma se existe atendimento; nao exibe controles de registro.
+        const btnNovoProntuario = document.getElementById('btn-novo-prontuario');
+        const btnAdicionarEvolucao = document.getElementById('btn-adicionar-evolucao');
+        const btnBuscarProntuario = document.getElementById('btnBuscarProntuario');
+        if (btnNovoProntuario) btnNovoProntuario.classList.toggle('d-none', perfilSomenteLeitura);
+        if (btnAdicionarEvolucao) btnAdicionarEvolucao.classList.toggle('d-none', perfilSomenteLeitura);
         
         document.getElementById('nav-user-name').textContent = resposta.nome;
         document.getElementById('nav-user-sector').textContent = resposta.setor;
+        const indicadorPerfil = document.getElementById('nav-user-profile');
+        const nivelVisual = String(resposta.nivelAcesso || resposta.nivel || '').trim().toLowerCase();
+        if (indicadorPerfil) {
+          const ehDesenvolvimento = nivelVisual === 'desenvolvimento';
+          indicadorPerfil.textContent = ehDesenvolvimento ? 'Desenvolvimento / Homologacao' : '';
+          indicadorPerfil.classList.toggle('d-none', !ehDesenvolvimento);
+        }
+        const btnBackup = document.querySelector('[onclick="criarBackupManualFrontend()"]');
+        if (btnBackup) btnBackup.classList.toggle('d-none', nivelVisual === 'desenvolvimento');
 
         // Personalização Visual Dinâmica (Aba SETORES)
         const containerIdentidade = document.getElementById('identidade-setor');
@@ -117,7 +216,7 @@
         }
 
         // Valida RBAC para habilitar botão de Dashboard (Gestores Gerais)
-        const niveisPainel = ['admin', 'diretoria', 'secretarios', 'secretario', 'secretário'];
+        const niveisPainel = ['admin', 'gestor', 'observador', 'desenvolvimento'];
         const nivelUsuario = String(resposta.nivelAcesso || '').trim().toLowerCase();
         const abaGerencial = document.getElementById('btn-tab-dashboard');
 
@@ -129,15 +228,25 @@
             }
         }
 
+        const btnAtendimentos = document.getElementById('btn-tab-atendimentos');
+        const btnControleSocial = document.getElementById('btn-tab-controle-social');
+        if (btnAtendimentos) btnAtendimentos.classList.toggle('d-none', perfilObservadorAtual() || perfilControleSocialAtual());
+        if (btnControleSocial) btnControleSocial.classList.toggle('d-none', !podeAcessarAcompanhamentoAtual());
+
         // Valida RBAC para habilitar Config. Formulários e Setores (Admin e TI)
         const nivel = resposta.nivelAcesso ? resposta.nivelAcesso.toLowerCase() : '';
-        if (nivel === 'admin' || nivel === 'ti') {
+        if (nivel === 'admin' || nivel === 'ti' || nivel === 'desenvolvimento') {
           document.getElementById('btn-tab-usuarios').classList.remove('d-none');
           document.getElementById('btn-tab-setores').classList.remove('d-none');
           document.getElementById('btn-tab-formularios').classList.remove('d-none');
         }
 
         if(appContainer) appContainer.classList.remove('d-none');
+        if (perfilObservadorAtual()) alternarAba(null, 'dashboard');
+        if (perfilControleSocialAtual()) alternarAba(null, 'controle-social');
+        if (String(resposta.trocaSenhaObrigatoria || '').toUpperCase() === 'SIM') {
+          new bootstrap.Modal(document.getElementById('modalTrocaSenhaObrigatoria')).show();
+        }
         
         configurarEventosViaCep();
       } else {
@@ -188,15 +297,20 @@
   
   function alternarAba(event, abaDestino) {
     if (event) event.preventDefault();
+    if (abaDestino === 'atendimentos' && perfilObservadorAtual()) abaDestino = 'dashboard';
+    if (perfilControleSocialAtual() && abaDestino !== 'controle-social') abaDestino = 'controle-social';
+    if (abaDestino === 'controle-social' && !podeAcessarAcompanhamentoAtual()) abaDestino = 'atendimentos';
     
     const abaAtend = document.getElementById('aba-atendimentos');
     const abaDash = document.getElementById('dashboard-container');
+    const abaControleSocial = document.getElementById('controle-social-container');
     const abaUsuarios = document.getElementById('usuarios-container');
     const abaSetores = document.getElementById('setores-container');
     const abaFormularios = document.getElementById('formularios-container');
     
     const btnAtend = document.getElementById('btn-tab-atendimentos');
     const btnDash = document.getElementById('btn-tab-dashboard');
+    const btnControleSocial = document.getElementById('btn-tab-controle-social');
     const btnUsuarios = document.getElementById('btn-tab-usuarios');
     const btnSetores = document.getElementById('btn-tab-setores');
     const btnFormularios = document.getElementById('btn-tab-formularios');
@@ -204,12 +318,14 @@
     // Reset geral de visibilidade
     if(abaAtend) { abaAtend.classList.add('d-none'); abaAtend.style.display = ''; }
     if(abaDash) { abaDash.classList.add('d-none'); abaDash.style.display = ''; }
+    if(abaControleSocial) { abaControleSocial.classList.add('d-none'); abaControleSocial.style.display = ''; }
     if(abaUsuarios) { abaUsuarios.classList.add('d-none'); abaUsuarios.style.display = ''; }
     if(abaSetores) { abaSetores.classList.add('d-none'); abaSetores.style.display = ''; }
     if(abaFormularios) { abaFormularios.classList.add('d-none'); abaFormularios.style.display = ''; }
     
     if(btnAtend) btnAtend.classList.remove('active');
     if(btnDash) btnDash.classList.remove('active');
+    if(btnControleSocial) btnControleSocial.classList.remove('active');
     if(btnUsuarios) btnUsuarios.classList.remove('active');
     if(btnSetores) btnSetores.classList.remove('active');
     if(btnFormularios) btnFormularios.classList.remove('active');
@@ -221,6 +337,10 @@
       if(abaDash) abaDash.classList.remove('d-none');
       if(btnDash) btnDash.classList.add('active');
       carregarDashboard();
+    } else if (abaDestino === 'controle-social') {
+      if(abaControleSocial) abaControleSocial.classList.remove('d-none');
+      if(btnControleSocial) btnControleSocial.classList.add('active');
+      carregarAcompanhamentoControleSocial();
     } else if (abaDestino === 'usuarios') {
       if(abaUsuarios) { abaUsuarios.classList.remove('d-none'); abaUsuarios.style.display = 'block'; }
       if(btnUsuarios) btnUsuarios.classList.add('active');
@@ -275,12 +395,16 @@
           
           html += `<label class="form-label">${campo.label}${badgeHtml}</label>`;
           
+          const ehCampoAtendimentoCreas = String(campo.label).trim().toLowerCase() === 'atendimento creas' && String(window.usuarioAtual && window.usuarioAtual.setor || '').trim().toLowerCase() === 'creas';
           if (campo.tipo === 'text' || campo.tipo === 'number' || campo.tipo === 'date') {
-            html += `<input type="${campo.tipo}" class="form-control dynamic-input" name="${campo.label}">`;
+            const controleContrarreferencia = ehCampoAtendimentoCreas;
+            const evento = controleContrarreferencia ? ' oninput="atualizarDestinoContrarreferencia(this.value)"' : '';
+            html += `<input type="${campo.tipo}" class="form-control dynamic-input" name="${campo.label}"${evento}>`;
           } else if (campo.tipo === 'textarea') {
             html += `<textarea class="form-control dynamic-input" name="${campo.label}" rows="2"></textarea>`;
           } else if (campo.tipo === 'select') {
-            html += `<select class="form-select dynamic-input" name="${campo.label}">`;
+            const evento = ehCampoAtendimentoCreas ? ' onchange="atualizarDestinoContrarreferencia(this.value)"' : '';
+            html += `<select class="form-select dynamic-input" name="${campo.label}"${evento}>`;
             html += `<option value="">Selecione...</option>`;
             if (campo.opcoes) {
               const arrayOpcoes = campo.opcoes.split(',');
@@ -295,6 +419,18 @@
           }
           
           html += `</div>`;
+          if (ehCampoAtendimentoCreas) {
+            html += `<div class="col-md-6 d-none" id="destino-contrarreferencia-container">
+              <label class="form-label">Destino da contrarreferência</label>
+              <select class="form-select dynamic-input" name="Destino da Contrarreferência" id="destino-contrarreferencia">
+                <option value="">Selecione...</option>
+                <option value="CRAS Promorar">CRAS Promorar</option>
+                <option value="CRAS Jardim Tatiana">CRAS Jardim Tatiana</option>
+                <option value="CRAS Itapeva">CRAS Itapeva</option>
+                <option value="Equipe Técnica da SECI">Equipe Técnica da SECI</option>
+              </select>
+            </div>`;
+          }
         });
         container.innerHTML = html;
       })
@@ -305,7 +441,7 @@
   }
 
   function mascaraCPFAlfanumerico(event) {
-    let valor = event.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    let valor = event.target.value.replace(/\D/g, '');
     valor = valor.substring(0, 11);
     
     if (valor.length > 9) {
@@ -320,10 +456,10 @@
   }
 
   // Campos imutáveis: bloqueados após busca bem-sucedida (LGPD)
-  const CAMPOS_IMUTAVEIS = ['inputCpf', 'inputNome', 'inputRg', 'inputNascimento', 'inputIdade'];
+  const CAMPOS_IMUTAVEIS = ['inputCpf', 'inputNome', 'inputRg', 'inputNascimento', 'inputIdade', 'inputRacaCor'];
   // Campos mutáveis: podem ser desbloqueados pelo botão lápis
   const CAMPOS_MUTAVEIS  = ['tel_fixo', 'tel_celular', 'cep_vitima', 'rua_vitima', 'num_vitima', 'bairro_vitima',
-                            'inputRacaCor', 'inputEscolaridade', 'inputRenda', 'inputPossuiBeneficio', 'inputBolsa', 'inputBpc',
+                            'inputNomeSocial', 'inputPreferenciaExibicao', 'inputEscolaridade', 'inputRenda', 'inputPossuiBeneficio', 'inputBolsa', 'inputBpc',
                             'inputAluguelSocialMunicipal', 'inputAluguelSocialEstadual', 'inputOutroBeneficio',
                             'inputOutroBeneficioDescricao', 'inputMoradia'];
 
@@ -467,12 +603,6 @@
     dadosObj['Descrição de Outro Benefício Social'] = temOutro ? document.getElementById(cfg.descricao).value.trim() : '';
   }
 
-  function normalizarDescricaoOutro(campo) {
-    const vistos = new Set();
-    campo.value = campo.value.split(/[;,\n]+/).map(item => item.trim())
-      .filter(item => item && !vistos.has(item.toLocaleLowerCase('pt-BR')) && vistos.add(item.toLocaleLowerCase('pt-BR'))).join('; ');
-  }
-
   function _bloquearTudo() {
     [...CAMPOS_IMUTAVEIS, ...CAMPOS_MUTAVEIS].forEach(id => {
       const el = document.getElementById(id);
@@ -495,18 +625,6 @@
     document.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
   }
 
-  function habilitarEdicaoVitima() {
-    CAMPOS_MUTAVEIS.forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.readOnly = false;
-      el.disabled = false;
-    });
-    renderizarBeneficiosOutro('input');
-    // Mantém os imutáveis bloqueados
-    Swal.fire({ title: 'Edição Habilitada', text: 'Você pode atualizar contato, endereço e perfil socioeconômico. Dados de identidade são protegidos.', icon: 'info', timer: 3000, showConfirmButton: false });
-  }
-
   function calcularIdadeVitima() {
     const dataNasc = document.getElementById('inputNascimento').value;
     if (!dataNasc) {
@@ -521,6 +639,66 @@
       idade--;
     }
     document.getElementById('inputIdade').value = idade >= 0 ? idade : '';
+  }
+
+  function mascararCpf(cpf) {
+    const digitos = String(cpf || '').replace(/\D/g, '');
+    return digitos.length === 11 ? '***.***.' + digitos.slice(6, 9) + '-' + digitos.slice(9) : 'Dado protegido';
+  }
+
+  function formatarCpfCompleto(cpf) {
+    const digitos = String(cpf || '').replace(/\D/g, '').substring(0, 11);
+    if (digitos.length !== 11) return String(cpf || '');
+    return digitos.slice(0, 3) + '.' + digitos.slice(3, 6) + '.' + digitos.slice(6, 9) + '-' + digitos.slice(9);
+  }
+
+  function cpfEhValido(cpf) {
+    const numeros = String(cpf || '').replace(/\D/g, '');
+    if (!/^\d{11}$/.test(numeros) || /^(\d)\1{10}$/.test(numeros)) return false;
+    const calcularDigito = function(base, pesoInicial) {
+      let soma = 0;
+      for (let i = 0; i < base.length; i++) soma += Number(base.charAt(i)) * (pesoInicial - i);
+      const resto = (soma * 10) % 11;
+      return resto === 10 ? 0 : resto;
+    };
+    const primeiro = calcularDigito(numeros.substring(0, 9), 10);
+    const segundo = calcularDigito(numeros.substring(0, 9) + primeiro, 11);
+    return Number(numeros.charAt(9)) === primeiro && Number(numeros.charAt(10)) === segundo;
+  }
+
+  function mensagemValidacaoCpf(cpf) {
+    const numeros = String(cpf || '').replace(/\D/g, '');
+    if (numeros.length !== 11) {
+      return 'Digite os 11 n\u00fameros do CPF. Os pontos e o h\u00edfen s\u00e3o adicionados automaticamente.';
+    }
+    return 'O CPF informado possui 11 n\u00fameros, mas os d\u00edgitos verificadores n\u00e3o conferem. Confira o documento.';
+  }
+
+  function atualizarDestinoContrarreferencia(status) {
+    const container = document.getElementById('destino-contrarreferencia-container');
+    if (!container) return;
+    const statusNormalizado = String(status || '').trim().toLocaleLowerCase('pt-BR').replace(/[-\s]/g, '');
+    const exibir = statusNormalizado === 'contrareferenciado' || statusNormalizado === 'contrarreferenciado';
+    container.classList.toggle('d-none', !exibir);
+    if (!exibir) document.getElementById('destino-contrarreferencia').value = '';
+  }
+
+  function mascararNome(nome) {
+    return String(nome || '').split(/\s+/).filter(Boolean).map(parte => parte.charAt(0) + '*'.repeat(Math.max(2, parte.length - 1))).join(' ');
+  }
+
+  function mascararRg(rg) {
+    const valor = String(rg || '');
+    return valor.length > 4 ? '**.***.' + valor.slice(-4) : 'Dado protegido';
+  }
+
+  function formatarDataExibicao(data) {
+    const texto = String(data || '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+      const partes = texto.split('-');
+      return partes[2] + '/' + partes[1] + '/' + partes[0];
+    }
+    return texto;
   }
 
   function pesquisarCpf() {
@@ -546,7 +724,12 @@
           document.querySelectorAll('.aviso-lgpd').forEach(el => el.remove());
 
           // Preenche todos os campos
-          document.getElementById('inputNome').value = resultado.nome || '';
+          document.getElementById('inputCpf').dataset.valorOriginal = cpf;
+          document.getElementById('inputCpf').value = mascararCpf(cpf);
+          document.getElementById('inputNome').value = mascararNome(resultado.nome);
+          document.getElementById('inputNomeSocial').value = resultado.nome_social || '';
+          document.getElementById('inputPreferenciaExibicao').value = resultado.preferencia_exibicao || 'Nome de registro';
+          document.getElementById('inputNascimento').type = 'date';
           document.getElementById('inputNascimento').value = resultado.nascimento || '';
           
           // Mascara o RG (Ex: **.***.901-2)
@@ -556,8 +739,10 @@
 
           // Adiciona avisos LGPD nos containers
           const avisoHtml = `<small class="text-danger fw-bold d-block mt-1 aviso-lgpd"><i class="bi bi-lock-fill"></i> Dados protegidos pela LGPD</small>`;
+          document.getElementById('cpf-container').insertAdjacentHTML('afterend', avisoHtml);
+          document.getElementById('nome-container').insertAdjacentHTML('beforeend', avisoHtml);
           document.getElementById('rg-container').insertAdjacentHTML('beforeend', avisoHtml);
-          document.getElementById('nascimento-container').insertAdjacentHTML('beforeend', avisoHtml);
+          document.getElementById('raca-container').insertAdjacentHTML('beforeend', avisoHtml);
 
           document.getElementById('tel_fixo').value = resultado.tel_fixo || '';
           document.getElementById('tel_celular').value = resultado.tel_celular || '';
@@ -568,17 +753,19 @@
           if (resultado.cep && (!resultado.logradouro || !resultado.bairro)) {
             preencherEnderecoPorCep(resultado.cep, true, false);
           }
-          document.getElementById('inputRacaCor').value = resultado.raca_cor || '';
+          const campoRaca = document.getElementById('inputRacaCor');
+          campoRaca.value = '';
+          campoRaca.options[0].text = 'Dado protegido';
+          document.getElementById('inputIdade').value = resultado.idade || '';
           document.getElementById('inputEscolaridade').value = resultado.escolaridade || '';
           document.getElementById('inputRenda').value = resultado.renda || '';
           preencherBeneficios('input', resultado);
           document.getElementById('inputMoradia').value = resultado.moradia || '';
-          calcularIdadeVitima();
 
           // Bloqueia TODOS os campos (fundo cinza da regra CSS)
           _bloquearTudo();
 
-          Swal.fire({ title: 'Cadastro localizado!', text: `Dados de ${resultado.nome || 'Vítima'} carregados. Você pode atualizar contato, endereço e perfil socioeconômico.`, icon: 'success', timer: 3000, showConfirmButton: false });
+          Swal.fire({ title: 'Cadastro localizado!', text: `Dados de ${resultado.nome_exibicao || resultado.nome || 'Vítima'} carregados. Você pode atualizar contato, endereço e perfil socioeconômico.`, icon: 'success', timer: 3000, showConfirmButton: false });
         } else {
           // --- NOVA VÍTIMA ---
           idVitimaOculto.value = 'NOVO';
@@ -600,6 +787,11 @@
   function enviarFormulario() {
     const form = document.getElementById('formAtendimento');
     if (!validarBeneficioOutro('input')) return;
+    const destinoContrarreferencia = document.getElementById('destino-contrarreferencia');
+    if (destinoContrarreferencia && !document.getElementById('destino-contrarreferencia-container').classList.contains('d-none') && !destinoContrarreferencia.value) {
+      Swal.fire('Atenção', 'Selecione o destino da contrarreferência.', 'warning');
+      return;
+    }
     
     // Passo 4: Se a seção está oculta (fluxo de evolução), usa o CPF hidden
     const cpfHidden = document.getElementById('cpf-evolucao-hidden').value;
@@ -627,8 +819,21 @@
       if (value) dadosObj[key] = value;
     }
     incluirDadosBeneficios(dadosObj, 'input');
+    dadosObj['Composição Familiar'] = obterComposicaoFamiliar();
+    dadosObj['CPF'] = document.getElementById('inputCpf').dataset.valorOriginal || dadosObj['CPF'];
     // Garante CPF mesmo com seção oculta
     if (!dadosObj['CPF'] && cpfHidden) dadosObj['CPF'] = cpfHidden;
+    const criandoNovoProntuario = document.getElementById('idVitimaOculto').value === 'NOVO';
+    if (criandoNovoProntuario && !cpfEhValido(dadosObj['CPF'])) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-save me-1"></i> Salvar Atendimento';
+      Swal.fire('CPF inválido', 'Confira os 11 dígitos do CPF antes de criar um novo prontuário.', 'warning');
+      return;
+    }
+    if (window.confirmacaoDuplicidadePendente) {
+      dadosObj['_confirmarPossivelDuplicidade'] = true;
+      window.confirmacaoDuplicidadePendente = false;
+    }
 
     google.script.run
       .withSuccessHandler(function(resposta) {
@@ -656,6 +861,22 @@
             document.getElementById('inputCpfProntuario').value = cpfAtual;
             pesquisarProntuarioHome();
           }
+        } else if (resposta.codigo === 'POSSIVEL_DUPLICIDADE') {
+          const criterios = (resposta.motivos || []).join('; ');
+          Swal.fire({
+            title: 'Possível prontuário duplicado',
+            html: 'Encontramos um cadastro com coincidência de <strong>' + criterios + '</strong>.<br><br>Confira o CPF informado. Se tiver certeza de que se trata de outra pessoa, confirme para prosseguir.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Confirmar novo cadastro',
+            cancelButtonText: 'Revisar CPF',
+            confirmButtonColor: '#b45309'
+          }).then(function(resultado) {
+            if (resultado.isConfirmed) {
+              window.confirmacaoDuplicidadePendente = true;
+              enviarFormulario();
+            }
+          });
         } else {
           Swal.fire('Erro', resposta.erro, 'error');
         }
@@ -738,6 +959,11 @@
         // a) Reseta o formulário
         document.getElementById('formAtendimento').reset();
         document.getElementById('idVitimaOculto').value = "";
+        document.getElementById('inputNascimento').type = 'date';
+        document.getElementById('inputCpf').dataset.valorOriginal = '';
+        document.getElementById('inputRacaCor').options[0].text = 'Selecione...';
+        document.getElementById('lista-filhos').innerHTML = '';
+        document.getElementById('composicao-familiar-container').classList.add('d-none');
         
         // b) Remove bloqueios
         const inputs = modalAtendimento.querySelectorAll('input, select, textarea');
@@ -951,11 +1177,17 @@
     }
   });
 
-  function pesquisarProntuarioHome() {
+  function pesquisarProntuarioHome(cpfConsulta) {
     const btn = document.getElementById('btnBuscarProntuario');
-    const cpfInput = document.getElementById('inputCpfProntuario').value;
+    const textoBotao = 'Buscar Histórico';
+    const cpfInput = String(cpfConsulta || document.getElementById('inputCpfProntuario').value || '');
     const cpfLimpo = cpfInput.replace(/\D/g, '');
     const painel = document.getElementById('resultado-prontuario');
+
+    if (cpfLimpo.length === 11 && !cpfEhValido(cpfLimpo)) {
+      Swal.fire('Aten\u00e7\u00e3o', mensagemValidacaoCpf(cpfLimpo), 'warning');
+      return;
+    }
     
     if (cpfLimpo.length !== 11) {
       Swal.fire('Atenção', 'Por favor, digite um CPF válido com 11 caracteres numéricos.', 'warning');
@@ -977,7 +1209,7 @@
           return; 
         }
 
-        btn.disabled = false; btn.innerHTML = 'Buscar Histórico';
+        btn.disabled = false; btn.innerHTML = textoBotao;
         
         if (resposta.status === 'erro') {
           Swal.fire('Erro no Servidor', resposta.mensagem, 'error');
@@ -985,6 +1217,10 @@
         }
         
         if (resposta.status === 'nao_encontrado') {
+          if (perfilSomenteLeituraAtual()) {
+            Swal.fire('Consulta concluída', 'Não há prontuário cadastrado para este CPF.', 'info');
+            return;
+          }
           Swal.fire({
             title: 'Vítima não localizada',
             text: "Deseja iniciar um novo registo?",
@@ -1022,7 +1258,8 @@
           timeline.innerHTML = '<p class="text-muted ms-2 mt-2">Nenhum atendimento na rede.</p>';
         } else {
           let html = '';
-          resposta.historico.forEach(atend => {
+          window.historicoDetalhesDoSetor = resposta.historico.map(atend => atend.detalhesDoSetor || []);
+          resposta.historico.forEach((atend, indiceAtendimento) => {
             const orgaoLow = atend.orgao.toLowerCase();
             let bc = "bg-secondary";
             if(orgaoLow.includes('pm') || orgaoLow.includes('militar')) bc = "bg-primary";
@@ -1060,6 +1297,7 @@
                   <div class="bg-light p-3 mt-3 rounded border border-light">
                     <p class="card-text small mb-0 text-dark"><strong>Observação:</strong><br>` + textoObservacao + `</p>
                   </div>
+                  ` + (atend.detalhesDoSetor && atend.detalhesDoSetor.length ? `<button type="button" class="btn btn-outline-primary btn-sm mt-3" onclick="verDetalhesDoMeuOrgao(${indiceAtendimento})"><i class="bi bi-clipboard2-check me-1"></i>Ver detalhes do meu órgão</button>` : '') + `
                 </div>
               </div>`;
           });
@@ -1067,13 +1305,10 @@
         }
         painel.classList.remove('d-none');
         
-        // Controle de visibilidade do botão de Cadastro Completo (LGPD)
-        const btnCadastro = document.getElementById('btn-ver-cadastro-completo');
+        // Controle de visibilidade do botão de edição cadastral.
+        const btnCadastro = document.getElementById('btn-editar-dados-vitima');
         if (btnCadastro) {
-          const niveisPermitidos = ['admin', 'diretoria', 'secretario', 'secretário'];
-          const nivel = (window.usuarioAtual && window.usuarioAtual.nivelAcesso) ? window.usuarioAtual.nivelAcesso.toLowerCase() : '';
-          
-          if (niveisPermitidos.includes(nivel) || nivel === 'creas' || nivel === 'assistência social') {
+          if (!perfilSomenteLeituraAtual()) {
              btnCadastro.classList.remove('d-none');
           } else {
              btnCadastro.classList.add('d-none');
@@ -1087,6 +1322,20 @@
       .consultarProntuarioIntegrado(cpfLimpo, obterTokenSessao());
   }
 
+  function verDetalhesDoMeuOrgao(indice) {
+    const detalhes = (window.historicoDetalhesDoSetor || [])[indice] || [];
+    const escapar = valor => String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const campos = detalhes.map(item => {
+      const grande = item.tipo === 'textarea';
+      const controle = grande
+        ? `<textarea class="form-control" rows="3" readonly>${escapar(item.valor)}</textarea>`
+        : `<input class="form-control" value="${escapar(item.valor)}" readonly>`;
+      return `<div class="${grande ? 'col-12' : 'col-md-6'} text-start"><label class="form-label fw-semibold">${escapar(item.rotulo)}</label>${controle}</div>`;
+    }).join('');
+    const formulario = `<div class="text-start"><div class="border-bottom pb-2 mb-3 text-secondary fw-semibold">Informações específicas do órgão</div><div class="row g-3">${campos}</div></div>`;
+    Swal.fire({ title: 'Evolução do meu órgão', html: formulario || '<p>Nenhum detalhe registrado.</p>', width: 800, confirmButtonText: 'Fechar' });
+  }
+
   function obterDataDeHojeFormatada() {
       const hoje = new Date();
       // Ajuste de fuso horário local para evitar que retorne o dia anterior à noite
@@ -1096,6 +1345,10 @@
   }
 
   function abrirNovoAtendimentoNormal() {
+    if (perfilSomenteLeituraAtual()) {
+      Swal.fire('Acesso restrito', 'Seu perfil permite somente consultar informações e não pode registrar atendimentos.', 'warning');
+      return;
+    }
     // Passo 3: Fluxo normal - garante que a seção Dados da Vítima esteja visível
     document.getElementById('secao-dados-vitima').classList.remove('d-none');
     document.getElementById('cpf-evolucao-hidden').value = '';
@@ -1112,6 +1365,10 @@
   }
 
   function abrirNovoAtendimentoComCpf(cpfCopia) {
+    if (perfilSomenteLeituraAtual()) {
+      Swal.fire('Acesso restrito', 'Seu perfil permite somente consultar informações e não pode registrar evoluções.', 'warning');
+      return;
+    }
     // Passo 2: Fluxo via histórico - oculta Dados da Vítima e usa CPF hidden
     const cpfBase = cpfCopia || document.getElementById('inputCpfProntuario').value;
     
@@ -1144,21 +1401,160 @@
     modalInst.show();
   }
 
-  function abrirCadastroCompleto() {
+  function abrirEdicaoDadosVitima() {
+    abrirCadastroCompleto(true);
+  }
+
+  function atualizarBotaoCorrecaoCpf() {
+    const botao = document.getElementById('btnCorrigirCpf');
+    if (!botao) return;
+    botao.classList.toggle('d-none', !usuarioPodeCorrigirCpf());
+  }
+
+  function abrirCorrecaoCpfVitima() {
+    if (!usuarioPodeCorrigirCpf()) {
+      Swal.fire('Acesso restrito', 'Somente Admin, TI ou Gestor podem corrigir o CPF de um prontuário.', 'warning');
+      return;
+    }
+
+    const campoCpf = document.getElementById('cad_cpf');
+    const cpfAtual = String(campoCpf && (campoCpf.dataset.valorOriginal || campoCpf.value) || '').replace(/\D/g, '');
+    const modalCadastroEl = document.getElementById('modalCadastroVitima');
+    const modalCadastro = modalCadastroEl ? bootstrap.Modal.getInstance(modalCadastroEl) : null;
+    const reabrirCadastro = function() {
+      if (!modalCadastroEl) return;
+      const instancia = bootstrap.Modal.getInstance(modalCadastroEl) || new bootstrap.Modal(modalCadastroEl);
+      instancia.show();
+    };
+    if (modalCadastro) modalCadastro.hide();
+    if (cpfAtual.length !== 11) {
+      reabrirCadastro();
+      Swal.fire('CPF não identificado', 'Feche este cadastro e consulte novamente o prontuário antes de corrigir o CPF.', 'warning');
+      return;
+    }
+
+    setTimeout(function() { Swal.fire({
+      title: 'Corrigir CPF',
+      html: '<p class="text-start small text-muted mb-3">Use esta função apenas quando o CPF foi digitado incorretamente. O histórico do prontuário será preservado.</p>' +
+        '<label class="form-label text-start d-block small fw-semibold">Motivo da correção</label>' +
+        '<textarea id="swal-motivo-correcao-cpf" class="form-control text-start" rows="2" maxlength="250" placeholder="Ex.: CPF digitado incorretamente no primeiro atendimento"></textarea>',
+      input: 'text',
+      inputLabel: 'Novo CPF',
+      inputPlaceholder: '000.000.000-00',
+      inputAttributes: { maxlength: 14, autocomplete: 'off' },
+      showCancelButton: true,
+      confirmButtonText: 'Corrigir CPF',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#0d6efd',
+      focusConfirm: false,
+      didOpen: function() {
+        const inputCpfNovo = Swal.getInput();
+        if (inputCpfNovo) {
+          inputCpfNovo.setAttribute('inputmode', 'numeric');
+          inputCpfNovo.addEventListener('input', mascaraCPFAlfanumerico);
+          inputCpfNovo.focus();
+        }
+      },
+      preConfirm: function() {
+        const novoCpf = String(Swal.getInput() && Swal.getInput().value || '').replace(/\D/g, '');
+        const motivoEl = document.getElementById('swal-motivo-correcao-cpf');
+        const motivo = String(motivoEl && motivoEl.value || '').trim();
+        if (novoCpf.length === 11 && !cpfEhValido(novoCpf)) {
+          Swal.showValidationMessage(mensagemValidacaoCpf(novoCpf));
+          return false;
+        }
+        if (!cpfEhValido(novoCpf)) {
+          Swal.showValidationMessage('Informe um CPF válido com 11 dígitos.');
+          return false;
+        }
+        if (motivo.length < 5) {
+          Swal.showValidationMessage('Informe o motivo da correção.');
+          return false;
+        }
+        return { novoCpf: novoCpf, motivo: motivo };
+      }
+    }).then(function(resultado) {
+      if (!resultado.isConfirmed || !resultado.value) {
+        reabrirCadastro();
+        return;
+      }
+      Swal.fire({ title: 'Corrigindo CPF...', allowOutsideClick: false, didOpen: function() { Swal.showLoading(); } });
+      google.script.run
+        .withSuccessHandler(function(resposta) {
+          if (!resposta || !resposta.sucesso) {
+            Swal.fire('Correção não realizada', (resposta && (resposta.erro || resposta.mensagem)) || 'Não foi possível corrigir o CPF.', 'warning').then(reabrirCadastro);
+            return;
+          }
+          const novoCpfFormatado = mascararCpf(resposta.cpfNovo);
+          if (campoCpf) {
+            campoCpf.dataset.valorOriginal = resposta.cpfNovo;
+            campoCpf.value = novoCpfFormatado;
+          }
+          const busca = document.getElementById('inputCpfProntuario');
+          if (busca) busca.value = formatarCpfCompleto(resposta.cpfNovo);
+          const modal = bootstrap.Modal.getInstance(document.getElementById('modalCadastroVitima'));
+          if (modal) modal.hide();
+          Swal.fire('CPF corrigido', resposta.mensagem || 'O histórico do prontuário foi preservado.', 'success').then(function() {
+            pesquisarProntuarioHome(resposta.cpfNovo);
+          });
+        })
+        .withFailureHandler(function(erro) {
+          Swal.fire('Erro na correção', String(erro), 'error').then(reabrirCadastro);
+        })
+        .corrigirCpfVitima(cpfAtual, resultado.value.novoCpf, resultado.value.motivo, obterTokenSessao());
+    }); }, 350);
+  }
+
+  function atualizarComposicaoFamiliar() {
+    const possuiFilhos = document.getElementById('inputPossuiFilhos').value === 'Sim';
+    const container = document.getElementById('composicao-familiar-container');
+    container.classList.toggle('d-none', !possuiFilhos);
+    if (possuiFilhos && !document.querySelector('#lista-filhos [data-filho]')) adicionarFilho();
+  }
+
+  function adicionarFilho() {
+    const lista = document.getElementById('lista-filhos');
+    const item = document.createElement('div');
+    item.className = 'border rounded p-2 bg-light';
+    item.setAttribute('data-filho', '');
+    item.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5"><label class="form-label small mb-1">Nome</label><input type="text" class="form-control form-control-sm filho-nome" maxlength="150"></div>
+        <div class="col-md-2"><label class="form-label small mb-1">Idade</label><input type="number" class="form-control form-control-sm filho-idade" min="0" max="120"></div>
+        <div class="col-md-4"><label class="form-label small mb-1">Escola</label><input type="text" class="form-control form-control-sm filho-escola" maxlength="150"></div>
+        <div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger btn-sm" title="Remover filho" onclick="this.closest('[data-filho]').remove()"><i class="bi bi-trash"></i></button></div>
+      </div>`;
+    lista.appendChild(item);
+  }
+
+  function obterComposicaoFamiliar() {
+    if (document.getElementById('inputPossuiFilhos').value !== 'Sim') return [];
+    return [...document.querySelectorAll('#lista-filhos [data-filho]')]
+      .map(item => ({
+        nome: item.querySelector('.filho-nome').value.trim(),
+        idade: item.querySelector('.filho-idade').value.trim(),
+        escola: item.querySelector('.filho-escola').value.trim()
+      }))
+      .filter(filho => filho.nome || filho.idade || filho.escola);
+  }
+
+  function abrirCadastroCompleto(modoEdicao) {
     const cpfBase = document.getElementById('inputCpfProntuario').value;
     const modalEl = document.getElementById('modalCadastroVitima');
     const modalInst = new bootstrap.Modal(modalEl);
     modalInst.show();
+    const botaoCorrecao = document.getElementById('btnCorrigirCpf');
+    if (botaoCorrecao) botaoCorrecao.classList.add('d-none');
     
     if (cpfBase) {
       document.getElementById('cad_cpf').value = cpfBase;
       setTimeout(() => {
-        pesquisarCpfCadastroCompleto();
+        pesquisarCpfCadastroCompleto(!!modoEdicao);
       }, 500);
     }
   }
 
-  function pesquisarCpfCadastroCompleto() {
+  function pesquisarCpfCadastroCompleto(modoEdicao) {
     const cpf = document.getElementById('cad_cpf').value.replace(/\D/g, '');
     if (cpf.length !== 11) return;
     
@@ -1167,18 +1563,15 @@
         if(resposta) {
            const v = resposta;
            document.getElementById('cad_idVitima').value = v.idVitima || '';
+           document.getElementById('cad_cpf').dataset.valorOriginal = cpf;
+           document.getElementById('cad_cpf').value = mascararCpf(cpf);
+           atualizarBotaoCorrecaoCpf();
            document.getElementById('cad_nome').value = v.nome || '';
-           document.getElementById('cad_rg').value = v.rg || '';
+           document.getElementById('cad_nome_social').value = v.nome_social || '';
+           document.getElementById('cad_preferencia_exibicao').value = v.preferencia_exibicao || 'Nome de registro';
+           document.getElementById('cad_rg').value = mascararRg(v.rg);
            
-           if(v.nascimento) {
-             try {
-               let d = new Date(v.nascimento);
-               let iso = d.toISOString().split('T')[0];
-               document.getElementById('cad_nascimento').value = iso;
-             } catch(e){
-                 document.getElementById('cad_nascimento').value = v.nascimento;
-             }
-           }
+           document.getElementById('cad_nascimento').value = formatarDataExibicao(v.nascimento);
            
            document.getElementById('cad_tel_fixo').value = v.tel_fixo || '';
            document.getElementById('cad_celular').value = v.tel_celular || '';
@@ -1186,7 +1579,7 @@
            document.getElementById('cad_rua').value = v.logradouro || '';
            document.getElementById('cad_numero').value = v.numero || '';
            document.getElementById('cad_bairro').value = v.bairro || '';
-           document.getElementById('cad_raca_cor').value = v.raca_cor || '';
+           document.getElementById('cad_raca_cor').value = 'Dado protegido';
            
            document.getElementById('cad_escolaridade').value = v.escolaridade || '';
            document.getElementById('cad_renda').value = v.renda || '';
@@ -1215,6 +1608,7 @@
            const btnSalvar = document.getElementById('btnSalvarCadastro');
            if (btnEditar) btnEditar.classList.remove('d-none');
            if (btnSalvar) btnSalvar.classList.add('d-none');
+           if (modoEdicao) habilitarEdicaoCadastro();
         }
       })
       .buscarVitimaPorCpf(cpf, obterTokenSessao());
@@ -1224,16 +1618,30 @@
       const form = document.getElementById('formCadastroVitima');
       const inputs = form.querySelectorAll('input');
       const selects = form.querySelectorAll('select');
+      const camposEditaveis = [
+        'cad_nome', 'cad_nome_social', 'cad_tel_fixo', 'cad_celular', 'cad_cep', 'cad_rua', 'cad_numero', 'cad_bairro',
+        'cad_bolsa', 'cad_bpc', 'cad_aluguel_social_municipal', 'cad_aluguel_social_estadual', 'cad_outro_beneficio',
+        'cad_outro_beneficio_texto', 'cad_outro_beneficio_descricao'
+      ];
+      const seletoresEditaveis = [
+        'cad_preferencia_exibicao', 'cad_escolaridade', 'cad_renda', 'cad_possui_beneficio', 'cad_moradia',
+        'cad_outro_beneficio_sugestao'
+      ];
       
       inputs.forEach(input => {
-          if(input.id !== 'cad_cpf' && input.type !== 'hidden') {
-              if (input.type === 'checkbox') input.disabled = false;
-              else input.readOnly = false;
+          if (input.type === 'hidden') return;
+          const podeEditar = camposEditaveis.includes(input.id);
+          if (input.id === 'cad_cpf') {
+            input.disabled = true;
+            return;
           }
+          input.disabled = false;
+          if (input.type === 'checkbox') input.disabled = !podeEditar;
+          else input.readOnly = !podeEditar;
       });
       
       selects.forEach(select => {
-          select.disabled = false;
+          select.disabled = !seletoresEditaveis.includes(select.id);
       });
       renderizarBeneficiosOutro('cad');
       
@@ -1260,7 +1668,7 @@
     formData.forEach((value, key) => { dadosObj[key] = value; });
     incluirDadosBeneficios(dadosObj, 'cad');
     // Pegar valor do input desabilitado manualmente
-    dadosObj['CPF'] = document.getElementById('cad_cpf').value;
+    dadosObj['CPF'] = document.getElementById('cad_cpf').dataset.valorOriginal || document.getElementById('cad_cpf').value;
 
     google.script.run
       .withSuccessHandler(function(resposta) {

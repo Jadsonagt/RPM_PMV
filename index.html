@@ -43,21 +43,54 @@
           
           <form id="formLogin" onsubmit="event.preventDefault(); efetuarLogin();">
             <div class="mb-3">
-              <label class="form-label small fw-bold">E-mail Institucional</label>
+              <label class="form-label small fw-bold">E-mail</label>
               <input type="email" id="login-email" class="form-control" required placeholder="Digite seu e-mail">
             </div>
             <div class="mb-4">
-              <label class="form-label small fw-bold">Código de Acesso</label>
-              <input type="password" id="login-senha" class="form-control" required placeholder="Digite a senha fornecida pelo Admin">
+              <label class="form-label small fw-bold">Senha de Acesso</label>
+              <input type="password" id="login-senha" class="form-control" required placeholder="Digite sua senha">
             </div>
             <button type="submit" id="btn-login" class="btn btn-primary w-100 py-2 fw-bold">
               <i class="bi bi-box-arrow-in-right me-1"></i> Entrar
             </button>
           </form>
+          <div class="text-center mt-3">
+            <button type="button" class="btn btn-link btn-sm text-decoration-none" onclick="abrirRecuperacaoSenha()">Esqueci minha senha</button>
+          </div>
           
           <div class="text-center mt-3 d-none" id="login-error">
             <small class="text-danger fw-bold"><i class="bi bi-exclamation-triangle me-1"></i> <span id="login-error-msg"></span></small>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="modalRecuperarSenha" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Recuperar senha</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <p class="small text-muted">Informe seu e-mail institucional. Se houver uma conta vinculada, enviaremos as instruções.</p>
+            <label for="recuperar-email" class="form-label">E-mail institucional</label>
+            <input id="recuperar-email" type="email" class="form-control" autocomplete="email">
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" id="btn-recuperar-senha" class="btn btn-primary" onclick="solicitarRecuperacaoSenha()">Enviar instruções</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="modalTrocaSenhaObrigatoria" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Defina sua nova senha</h5></div>
+          <div class="modal-body">
+            <p class="text-muted small">Para proteger sua conta, escolha uma senha pessoal antes de continuar.</p>
+            <label for="nova-senha-obrigatoria" class="form-label">Nova senha</label>
+            <input id="nova-senha-obrigatoria" type="password" class="form-control mb-3" minlength="10" autocomplete="new-password">
+            <label for="confirmar-senha-obrigatoria" class="form-label">Confirme a nova senha</label>
+            <input id="confirmar-senha-obrigatoria" type="password" class="form-control" minlength="10" autocomplete="new-password">
+          </div>
+          <div class="modal-footer"><button type="button" id="btn-trocar-senha-obrigatoria" class="btn btn-primary" onclick="confirmarTrocaSenhaObrigatoria()">Salvar nova senha</button></div>
         </div>
       </div>
     </div>
@@ -84,6 +117,9 @@
                 <a class="nav-link nav-item-custom active" id="btn-tab-atendimentos" style="cursor: pointer;" onclick="alternarAba(event, 'atendimentos')">Acolhimento</a>
               </li>
               <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-controle-social" style="cursor: pointer;" onclick="alternarAba(event, 'controle-social')">Acompanhamento</a>
+              </li>
+              <li class="nav-item">
                 <a class="nav-link nav-item-custom d-none" id="btn-tab-dashboard" style="cursor: pointer;" onclick="alternarAba(event, 'dashboard')">Painel Gerencial</a>
               </li>
               <li class="nav-item">
@@ -103,6 +139,7 @@
             <div class="d-flex flex-column lh-1 me-3">
               <span id="nav-user-name" class="fw-bold" style="font-size: 0.9rem; color: var(--azul-institucional);">Carregando...</span>
               <span id="nav-user-sector" class="small" style="font-size: 0.8rem;">---</span>
+              <span id="nav-user-profile" class="small text-primary d-none" style="font-size: 0.7rem;"></span>
             </div>
             <button class="btn btn-sm btn-outline-danger" onclick="fazerLogout()" title="Sair da conta" aria-label="Sair da conta">
               <i class="bi bi-box-arrow-right"></i>
@@ -120,7 +157,7 @@
             <p class="text-muted">Acesso rápido ao prontuário integrado e registro de acolhimentos.</p>
           </div>
           <div class="col-md-5 text-md-end">
-            <button class="btn btn-primary shadow-sm" onclick="abrirNovoAtendimentoNormal()">
+            <button id="btn-novo-prontuario" class="btn btn-primary shadow-sm" onclick="abrirNovoAtendimentoNormal()">
               <i class="bi bi-plus-lg me-1"></i> Novo Prontuário
             </button>
           </div>
@@ -171,10 +208,10 @@
                 </p>
               </div>
               <div class="mt-3 mt-md-0 d-flex gap-2">
-                <button id="btn-ver-cadastro-completo" class="btn btn-outline-secondary btn-sm shadow-sm d-none" onclick="abrirCadastroCompleto()">
-                  <i class="bi bi-person-vcard me-1"></i> Ver Cadastro Completo
+                <button id="btn-editar-dados-vitima" class="btn btn-outline-primary btn-sm shadow-sm d-none" onclick="abrirEdicaoDadosVitima()">
+                  <i class="bi bi-pencil-square me-1"></i> Editar dados da vítima
                 </button>
-                <button class="btn btn-outline-primary btn-sm shadow-sm" onclick="abrirNovoAtendimentoComCpf()">
+                <button id="btn-adicionar-evolucao" class="btn btn-outline-primary btn-sm shadow-sm" onclick="abrirNovoAtendimentoComCpf()">
                   <i class="bi bi-plus-circle me-1"></i> Adicionar Evolução
                 </button>
               </div>
@@ -191,7 +228,10 @@
       <!-- ABA 2: DASHBOARD GERENCIAL (Oculto por padrão) -->
       <?!= include('dashboard'); ?>
 
-      <!-- ABA 3: GESTÃO DE USUÁRIOS (Oculto por padrão) -->
+      <!-- ABA 3: ACOMPANHAMENTO DO ÓRGÃO (Controle Social) -->
+      <?!= include('controle-social'); ?>
+
+      <!-- ABA 4: GESTÃO DE USUÁRIOS (Oculto por padrão) -->
       <?!= include('admin-usuarios'); ?>
     </div> <!-- Fim App Container -->
     
@@ -213,18 +253,27 @@
                 <h6 class="fw-bold text-secondary mt-4 mb-3 border-bottom pb-2">Dados da Vítima</h6>
                 <div class="row g-3 mb-3">
                   <!-- CPF + Botões -->
-                  <div class="col-md-5">
-                    <label class="form-label text-muted fw-semibold">CPF da Vítima</label>
-                    <div class="input-group">
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">CPF</label>
+                    <div class="input-group" id="cpf-container">
                       <input type="text" class="form-control" id="inputCpf" name="CPF" maxlength="14" autocomplete="off" placeholder="XXX.XXX.XXX-XX" oninput="mascaraCPFAlfanumerico(event)">
                       <button class="btn btn-outline-secondary" type="button" id="btnBuscarCpf" onclick="pesquisarCpf()">Buscar</button>
-                      <button class="btn btn-outline-primary" type="button" onclick="habilitarEdicaoVitima()" title="Habilitar Edição dos Dados da Vítima"><i class="bi bi-pencil"></i></button>
                     </div>
                   </div>
-                  <!-- Nome -->
-                  <div class="col-md-7">
-                    <label class="form-label text-muted fw-semibold">Nome</label>
-                    <input type="text" class="form-control" id="inputNome" name="Nome" placeholder="Nome completo">
+                  <div class="col-md-8">
+                    <label class="form-label text-muted fw-semibold">Nome de identidade</label>
+                    <div id="nome-container"><input type="text" class="form-control" id="inputNome" name="Nome" placeholder="Nome completo"></div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label text-muted fw-semibold">Nome social</label>
+                    <input type="text" class="form-control" id="inputNomeSocial" name="Nome Social" placeholder="Nome social, se informado">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label text-muted fw-semibold">Como deseja ser identificada neste atendimento?</label>
+                    <select class="form-select" id="inputPreferenciaExibicao" name="Preferência de Exibição">
+                      <option value="Nome de registro" selected>Nome de registro</option>
+                      <option value="Nome social">Nome social</option>
+                    </select>
                   </div>
                   <!-- RG / Nascimento / Idade -->
                   <div class="col-md-4">
@@ -245,15 +294,17 @@
                   </div>
                   <div class="col-md-3">
                     <label class="form-label text-muted fw-semibold">Raça/Cor</label>
-                    <select class="form-select" id="inputRacaCor" name="Raça/Cor">
-                      <option value="">Selecione...</option>
-                      <option value="Branca">Branca</option>
-                      <option value="Preta">Preta</option>
-                      <option value="Parda">Parda</option>
-                      <option value="Amarela">Amarela</option>
-                      <option value="Indígena">Indígena</option>
-                      <option value="Não informada">Não informada</option>
-                    </select>
+                    <div id="raca-container">
+                      <select class="form-select" id="inputRacaCor" name="Raça/Cor">
+                        <option value="">Selecione...</option>
+                        <option value="Branca">Branca</option>
+                        <option value="Preta">Preta</option>
+                        <option value="Parda">Parda</option>
+                        <option value="Amarela">Amarela</option>
+                        <option value="Indígena">Indígena</option>
+                        <option value="Não informada">Não informada</option>
+                      </select>
+                    </div>
                   </div>
                   <!-- Telefones -->
                   <div class="col-md-3">
@@ -354,6 +405,23 @@
                       <option value="Outro">Outro</option>
                     </select>
                   </div>
+                  <div class="col-12 mt-3 mb-1 border-bottom pb-2">
+                    <h6 class="fw-bold text-secondary mb-0">Composição Familiar</h6>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label text-muted fw-semibold">Possui filhos?</label>
+                    <select class="form-select" id="inputPossuiFilhos" onchange="atualizarComposicaoFamiliar()">
+                      <option value="Não" selected>Não</option>
+                      <option value="Sim">Sim</option>
+                    </select>
+                  </div>
+                  <div class="col-12 d-none" id="composicao-familiar-container">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                      <span class="text-muted small">Informe cada filho separadamente.</span>
+                      <button type="button" class="btn btn-outline-primary btn-sm" onclick="adicionarFilho()"><i class="bi bi-plus-circle me-1"></i>Adicionar filho</button>
+                    </div>
+                    <div id="lista-filhos" class="d-flex flex-column gap-2"></div>
+                  </div>
                   <!-- Data do Atendimento e Relato -->
                   <div class="col-md-4">
                     <label class="form-label text-muted fw-semibold">Data do Atendimento</label>
@@ -397,33 +465,44 @@
                 
                 <h6 class="text-secondary border-bottom pb-2 mb-3">Identificação Básica</h6>
                 <div class="row g-2 mb-4">
-                  <div class="col-md-5">
-                    <label class="form-label small">CPF da Vítima</label>
-                    <input type="text" class="form-control form-control-sm" id="cad_cpf" name="CPF" maxlength="14" oninput="mascaraCPFAlfanumerico(event)" required disabled>
+                  <div class="col-md-4">
+                    <label class="form-label small">CPF</label>
+                    <div class="input-group input-group-sm">
+                      <input type="text" class="form-control" id="cad_cpf" name="CPF" maxlength="14" oninput="mascaraCPFAlfanumerico(event)" required disabled>
+                      <button type="button" class="btn btn-outline-primary d-none" id="btnCorrigirCpf" onclick="abrirCorrecaoCpfVitima()" title="Corrigir CPF do prontuário">
+                        <i class="bi bi-pencil-square me-1"></i> Corrigir
+                      </button>
+                    </div>
+                    <small class="text-danger fw-bold d-block mt-1"><i class="bi bi-lock-fill"></i> Dados protegidos pela LGPD</small>
                   </div>
-                  <div class="col-md-7">
-                    <label class="form-label small">Nome</label>
+                  <div class="col-md-8">
+                    <label class="form-label small">Nome de identidade</label>
                     <input type="text" class="form-control form-control-sm" id="cad_nome" name="Nome" required>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small">Nome social</label>
+                    <input type="text" class="form-control form-control-sm" id="cad_nome_social" name="Nome Social">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small">Como deseja ser identificada?</label>
+                    <select class="form-select form-select-sm" id="cad_preferencia_exibicao" name="Preferência de Exibição">
+                      <option value="Nome de registro" selected>Nome de registro</option>
+                      <option value="Nome social">Nome social</option>
+                    </select>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">RG</label>
                     <input type="text" class="form-control form-control-sm" id="cad_rg" name="RG" maxlength="14">
+                    <small class="text-danger fw-bold d-block mt-1"><i class="bi bi-lock-fill"></i> Dados protegidos pela LGPD</small>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Nascimento</label>
-                    <input type="date" class="form-control form-control-sm" id="cad_nascimento" name="Data de Nascimento">
+                    <input type="text" class="form-control form-control-sm" id="cad_nascimento" name="Data de Nascimento" readonly>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Raça/Cor</label>
-                    <select class="form-select form-select-sm" id="cad_raca_cor" name="Raça/Cor">
-                      <option value="">Selecione...</option>
-                      <option value="Branca">Branca</option>
-                      <option value="Preta">Preta</option>
-                      <option value="Parda">Parda</option>
-                      <option value="Amarela">Amarela</option>
-                      <option value="Indígena">Indígena</option>
-                      <option value="Não informada">Não informada</option>
-                    </select>
+                    <input type="text" class="form-control form-control-sm" id="cad_raca_cor" name="Raça/Cor" readonly>
+                    <small class="text-danger fw-bold d-block mt-1"><i class="bi bi-lock-fill"></i> Dados protegidos pela LGPD</small>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Telefone Fixo</label>
@@ -540,6 +619,7 @@
     <?!= include('scripts'); ?>
     <?!= include('dashboard-scripts'); ?>
     <?!= include('dashboard-filtros-scripts'); ?>
+    <?!= include('controle-social-scripts'); ?>
     <?!= include('relatorio-scripts'); ?>
     <?!= include('admin-usuarios-scripts'); ?>
   </body>

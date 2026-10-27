@@ -37,6 +37,9 @@
       barra.insertBefore(criarSelect('filtro-beneficio-isolado', 'Benefício social', [
         { valor: '', texto: 'Todos' }, { valor: '__com__', texto: 'Recebe algum benefício' }, { valor: '__sem__', texto: 'Não recebe benefício' }
       ]), barra.lastElementChild);
+      barra.insertBefore(criarSelect('filtro-filhos-isolado', 'Possui filhos?', [
+        { valor: '', texto: 'Todos' }, { valor: 'sim', texto: 'Sim' }, { valor: 'nao', texto: 'Não' }
+      ]), barra.lastElementChild);
       barra.insertBefore(criarSelect('filtro-setor-isolado', 'Setor / órgão', [{ valor: '', texto: 'Todos' }]), barra.lastElementChild);
     }
 
@@ -58,20 +61,28 @@
       select.value = valores.indexOf(atual) >= 0 || !atual ? atual : '';
     }
 
-    function carregarPerfis() {
-      if (!window.dashDadosBrutos || !window.dashDadosBrutos.length || perfisCarregados) return;
-      perfisCarregados = true;
-      google.script.run.withSuccessHandler(function (resposta) {
-        var perfis = resposta && resposta.perfis ? resposta.perfis : {};
+    function aplicarPerfisDashboard(perfis) {
         window.dashDadosBrutos.forEach(function (item) {
           var perfil = perfis[item.idVitima] || {};
           item.idade = perfil.idade || null;
           item.racaCor = perfil.racaCor || '';
           item.beneficios = Array.isArray(perfil.beneficios) ? perfil.beneficios : [];
+          item.possuiFilhos = perfil.possuiFilhos === true;
         });
         preencherSelect('filtro-raca-isolado', valoresUnicos(function (item) { return item.racaCor; }));
         preencherSelect('filtro-beneficio-isolado', beneficiosUnicos());
         preencherSelect('filtro-setor-isolado', valoresUnicos(function (item) { return item.orgao; }));
+    }
+
+    function carregarPerfis() {
+      if (!window.dashDadosBrutos || !window.dashDadosBrutos.length || perfisCarregados) return;
+      perfisCarregados = true;
+      if (window.dashPerfis) {
+        aplicarPerfisDashboard(window.dashPerfis);
+        return;
+      }
+      google.script.run.withSuccessHandler(function (resposta) {
+        aplicarPerfisDashboard(resposta && resposta.perfis ? resposta.perfis : {});
       }).withFailureHandler(function () {
         perfisCarregados = false;
       }).obterPerfisFiltrosDashboard(obterTokenSessao());
@@ -105,6 +116,7 @@
       var idade = document.getElementById('filtro-idade-isolado').value;
       var raca = document.getElementById('filtro-raca-isolado').value;
       var beneficio = document.getElementById('filtro-beneficio-isolado').value;
+      var filhos = document.getElementById('filtro-filhos-isolado').value;
       var setor = document.getElementById('filtro-setor-isolado').value;
       var ano = document.getElementById('filtro-ano').value;
       var inicio = document.getElementById('filtro-data-inicio').value;
@@ -121,6 +133,8 @@
         if (beneficio === '__com__' && !beneficios.length) return false;
         if (beneficio === '__sem__' && beneficios.length) return false;
         if (beneficio && beneficio.indexOf('__') !== 0 && beneficios.indexOf(beneficio) < 0) return false;
+        if (filhos === 'sim' && !item.possuiFilhos) return false;
+        if (filhos === 'nao' && item.possuiFilhos) return false;
         if (setor && item.orgao !== setor) return false;
         return true;
       });

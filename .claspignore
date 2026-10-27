@@ -1,0 +1,14 @@
+**/**
+!**/appsscript.json
+!**/*.gs
+!**/*.js
+!**/*.ts
+!**/*.html
+!**/*.json
+node_modules/**
+validate-code.js
+package.json
+package-lock.json
+*.xlsx
+.git/**
+.gitignore

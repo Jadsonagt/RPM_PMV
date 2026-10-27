@@ -1,4 +1,27 @@
 <script>
+  function criarBackupManualFrontend() {
+    const confirmar = window.confirm('Gerar uma cópia de segurança completa da base agora? A confirmação será enviada por e-mail.');
+    if (!confirmar) return;
+    Swal.fire({ title: 'Gerando backup...', text: 'A cópia de segurança está sendo criada.', allowOutsideClick: false, didOpen: function() { Swal.showLoading(); } });
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if (!resposta || !resposta.sucesso) {
+          Swal.fire('Backup não concluído', resposta && resposta.erro ? resposta.erro : 'Não foi possível criar o backup.', 'error');
+          return;
+        }
+        Swal.fire({
+          icon: resposta.emailEnviado ? 'success' : 'warning',
+          title: resposta.emailEnviado ? 'Backup concluído' : 'Backup concluído, mas e-mail não enviado',
+          html: 'A cópia <strong>' + resposta.nomeArquivo + '</strong> foi criada.' + (resposta.emailEnviado ? '<br>O Google confirmou o envio do e-mail de validação.' : '<br><span class="text-danger">Motivo: ' + (resposta.erroEmail || 'não informado') + '</span>'),
+          confirmButtonText: 'Fechar'
+        });
+      })
+      .withFailureHandler(function(erro) {
+        Swal.fire('Erro no backup', String(erro), 'error');
+      })
+      .criarBackupManualRPM(obterTokenSessao());
+  }
+
   function carregarTabelaUsuarios() {
     const tbody = document.getElementById('tabela-usuarios-body');
     tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando servidores...</td></tr>';
@@ -21,8 +44,8 @@
           resposta.usuarios.forEach(user => {
             // Adiciona o botão de edição e mantém regra da lixeira
             const btnEditar = `<button class="btn btn-sm btn-outline-primary me-2" onclick="prepararEdicao('${user.email}')" title="Editar Usuário"><i class="bi bi-pencil"></i></button>`;
-            const btnExcluir = (user.email.toLowerCase() === window.usuarioAtual.email.toLowerCase()) 
-              ? `${btnEditar}<span class="badge bg-secondary">Você (Bloqueado)</span>` 
+            const btnExcluir = (user.superUsuario || user.email.toLowerCase() === window.usuarioAtual.email.toLowerCase())
+              ? `${btnEditar}<span class="badge bg-secondary">${user.superUsuario ? 'Super usuário protegido' : 'Você (Bloqueado)'}</span>`
               : `${btnEditar}<button class="btn btn-sm btn-outline-danger" onclick="excluirUsuarioFrontend('${user.email}')" title="Remover Acesso"><i class="bi bi-trash"></i></button>`;
               
             html += `
@@ -57,8 +80,7 @@
       nome: form.nome.value,
       email: form.email.value,
       setor: form.setor.value,
-      nivel: form.nivel.value,
-      senha: form.senha ? form.senha.value : ''
+      nivel: form.nivel.value
     };
     
     google.script.run
@@ -72,7 +94,7 @@
             html: resposta.senhaTemporaria
               ? `<strong>ATENÇÃO:</strong> Copie e envie esta senha para o servidor:<br><br><h3 class="mt-2 text-primary user-select-all">${resposta.senhaTemporaria}</h3>`
               : resposta.mensagem,
-            icon: 'success'
+            icon: resposta.avisoEmail === false ? 'warning' : 'success'
           });
           const modalInst = bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario'));
           if(modalInst) modalInst.hide();

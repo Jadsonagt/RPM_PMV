@@ -2,7 +2,6 @@ function doGet(e) {
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('Sistema Integrado - Rede de Proteção à Mulher')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -10,10 +9,379 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-const DB_ID = '1XH4_zAMC6s8bIXyHv-n4WKSNOz1iafFoDlUgL7hv4Ck';
+/**
+ * Configuração institucional. Estes valores são definidos em Propriedades do
+ * script no Google Workspace e nunca devem ser gravados no código-fonte.
+ */
+function obterConfiguracaoProducao() {
+  const propriedades = PropertiesService.getScriptProperties();
+  const configuracao = {
+    dbId: String(propriedades.getProperty('RPM_DB_ID') || '').trim(),
+    emailSuperUsuario: String(propriedades.getProperty('RPM_EMAIL_SUPER_USUARIO') || '').trim().toLowerCase(),
+    pastaBackupId: String(propriedades.getProperty('RPM_PASTA_BACKUP_ID') || '').trim(),
+    emailValidacaoBackup: String(propriedades.getProperty('RPM_EMAIL_VALIDACAO_BACKUP') || '').trim(),
+    prefixoBackup: String(propriedades.getProperty('RPM_PREFIXO_BACKUP') || 'RPM_Backup_').trim()
+  };
+
+  const faltantes = [];
+  if (!configuracao.dbId) faltantes.push('RPM_DB_ID');
+  if (!configuracao.emailSuperUsuario) faltantes.push('RPM_EMAIL_SUPER_USUARIO');
+  if (!configuracao.pastaBackupId) faltantes.push('RPM_PASTA_BACKUP_ID');
+  if (!configuracao.emailValidacaoBackup) faltantes.push('RPM_EMAIL_VALIDACAO_BACKUP');
+  if (faltantes.length) {
+    throw new Error('Configuração institucional incompleta. Defina as propriedades do script: ' + faltantes.join(', '));
+  }
+  return configuracao;
+}
+
+// Catálogo inicial de linhas de proteção. O RPM permanece ativo; os demais
+// módulos ficam preparados para ativação após a definição dos fluxos pelo GDTI.
+const CATALOGO_MODULOS_PROTECAO_RPM = [
+  { id: 'RPM', nome: 'Rede de Proteção à Mulher', status: 'Ativo' },
+  { id: 'RPCA', nome: 'Rede de Proteção à Criança e ao Adolescente', status: 'Inativo' },
+  { id: 'RPI', nome: 'Rede de Proteção à Pessoa Idosa', status: 'Inativo' },
+  { id: 'RPD', nome: 'Rede de Proteção à Pessoa com Deficiência', status: 'Inativo' }
+];
+
+// Órgãos que poderão atuar em cada módulo quando ele for ativado. O vínculo
+// não libera o módulo por si só; o status do módulo continua prevalecendo.
+const VINCULOS_ORGAOS_MODULOS_RPM = [
+  ['PM', 'RPM'], ['PM', 'RPCA'], ['PM', 'RPI'], ['PM', 'RPD'],
+  ['GCM', 'RPM'], ['GCM', 'RPCA'], ['GCM', 'RPI'], ['GCM', 'RPD'],
+  ['Polícia Civil', 'RPM'], ['Polícia Civil', 'RPCA'], ['Polícia Civil', 'RPI'], ['Polícia Civil', 'RPD'],
+  ['Saúde', 'RPM'], ['Saúde', 'RPCA'], ['Saúde', 'RPI'], ['Saúde', 'RPD'],
+  ['CREAS', 'RPM'], ['CREAS', 'RPCA'], ['CREAS', 'RPI'], ['CREAS', 'RPD'],
+  ['Casa da Mulher', 'RPM'], ['CRAS', 'RPM'],
+  ['Conselho Tutelar', 'RPCA'], ['Escola', 'RPCA'],
+  ['Casa do Idoso', 'RPI']
+];
+
+function inicializarEstruturaModularRPM() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) throw new Error('Somente o super usuario pode inicializar a estrutura modular.');
+
+  const db = conectarBanco();
+  let abaModulos = db.getSheetByName('MODULOS_PROTECAO');
+  if (!abaModulos) abaModulos = db.insertSheet('MODULOS_PROTECAO');
+  if (abaModulos.getLastRow() === 0) abaModulos.appendRow(['ID_Módulo', 'Nome do Módulo', 'Status']);
+
+  const dadosModulos = abaModulos.getDataRange().getValues();
+  const idsModulos = {};
+  for (let i = 1; i < dadosModulos.length; i++) idsModulos[String(dadosModulos[i][0] || '').trim().toUpperCase()] = i + 1;
+  CATALOGO_MODULOS_PROTECAO_RPM.forEach(function(modulo) {
+    const linha = idsModulos[modulo.id];
+    if (linha) {
+      abaModulos.getRange(linha, 2, 1, 2).setValues([[modulo.nome, modulo.status]]);
+    } else {
+      abaModulos.appendRow([modulo.id, modulo.nome, modulo.status]);
+    }
+  });
+
+  let abaVinculos = db.getSheetByName('ORGAOS_MODULOS');
+  if (!abaVinculos) abaVinculos = db.insertSheet('ORGAOS_MODULOS');
+  if (abaVinculos.getLastRow() === 0) abaVinculos.appendRow(['Órgão', 'ID_Módulo', 'Status']);
+
+  const dadosVinculos = abaVinculos.getDataRange().getValues();
+  const chavesVinculos = {};
+  for (let i = 1; i < dadosVinculos.length; i++) {
+    chavesVinculos[String(dadosVinculos[i][0] || '').trim().toLowerCase() + '|' + String(dadosVinculos[i][1] || '').trim().toUpperCase()] = true;
+  }
+  VINCULOS_ORGAOS_MODULOS_RPM.forEach(function(vinculo) {
+    const chave = vinculo[0].toLowerCase() + '|' + vinculo[1];
+    if (!chavesVinculos[chave]) {
+      abaVinculos.appendRow([vinculo[0], vinculo[1], 'Ativo']);
+      chavesVinculos[chave] = true;
+    }
+  });
+
+  return { sucesso: true, modulos: CATALOGO_MODULOS_PROTECAO_RPM.length, vinculos: VINCULOS_ORGAOS_MODULOS_RPM.length };
+}
+
+function obterCatalogoModulosProtecao(tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao) return { sucesso: false, erro: 'Sessao invalida ou expirada.' };
+  return { sucesso: true, modulos: CATALOGO_MODULOS_PROTECAO_RPM.map(function(modulo) {
+    return { id: modulo.id, nome: modulo.nome, status: modulo.status };
+  }) };
+}
+
+function criarBackupManualRPM(tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || !verificarAdministradorCritico(tokenSessao)) {
+    return { sucesso: false, erro: 'Acesso negado: somente administradores podem gerar backups.' };
+  }
+
+  const bloqueio = LockService.getScriptLock();
+  if (!bloqueio.tryLock(30000)) {
+    return { sucesso: false, erro: 'Já existe um backup em andamento. Aguarde alguns instantes e tente novamente.' };
+  }
+
+  try {
+    const configuracao = obterConfiguracaoProducao();
+    const agora = new Date();
+    const carimbo = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm');
+    const nomeArquivo = configuracao.prefixoBackup + carimbo;
+    const arquivoBanco = DriveApp.getFileById(configuracao.dbId);
+    const pastaDestino = DriveApp.getFolderById(configuracao.pastaBackupId);
+    const copia = arquivoBanco.makeCopy(nomeArquivo, pastaDestino);
+    copia.setDescription('Cópia de segurança do RPM Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
+
+    const dataFormatada = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const resultadoEmail = enviarConfirmacaoBackupRPM(nomeArquivo, dataFormatada, copia.getUrl());
+    registrarAuditoria(sessao, 'BACKUP_MANUAL', resultadoEmail.enviado ? 'SUCESSO_EMAIL_ENVIADO' : 'SUCESSO_EMAIL_NAO_ENVIADO', copia.getId());
+    return {
+      sucesso: true,
+      nomeArquivo: nomeArquivo,
+      data: dataFormatada,
+      link: copia.getUrl(),
+      emailEnviado: resultadoEmail.enviado,
+      erroEmail: resultadoEmail.erro || ''
+    };
+  } catch (erro) {
+    registrarAuditoria(sessao, 'BACKUP_MANUAL', 'ERRO', '');
+    return { sucesso: false, erro: 'Não foi possível criar o backup: ' + erro.message };
+  } finally {
+    bloqueio.releaseLock();
+  }
+}
+
+function criarBackupAutomaticoRPM() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) {
+    throw new Error('Backup automatico nao autorizado para esta conta.');
+  }
+
+  const bloqueio = LockService.getScriptLock();
+  if (!bloqueio.tryLock(30000)) {
+    throw new Error('Ja existe um backup em andamento.');
+  }
+
+  const sessaoAuditoria = {
+    email: emailExecutor,
+    nome: 'Backup automatico',
+    setor: 'SISTEMA',
+    nivelAcesso: 'Admin'
+  };
+
+  try {
+    const configuracao = obterConfiguracaoProducao();
+    const agora = new Date();
+    const carimbo = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm');
+    const nomeArquivo = configuracao.prefixoBackup + carimbo;
+    const arquivoBanco = DriveApp.getFileById(configuracao.dbId);
+    const pastaDestino = DriveApp.getFolderById(configuracao.pastaBackupId);
+    const copia = arquivoBanco.makeCopy(nomeArquivo, pastaDestino);
+    copia.setDescription('Copia automatica de seguranca do RPM Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
+
+    const dataFormatada = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const resultadoEmail = enviarConfirmacaoBackupRPM(nomeArquivo, dataFormatada, copia.getUrl());
+    registrarAuditoria(sessaoAuditoria, 'BACKUP_AUTOMATICO', resultadoEmail.enviado ? 'SUCESSO_EMAIL_ENVIADO' : 'SUCESSO_EMAIL_NAO_ENVIADO', copia.getId());
+    return { sucesso: true, nomeArquivo: nomeArquivo, link: copia.getUrl(), emailEnviado: resultadoEmail.enviado };
+  } catch (erro) {
+    registrarAuditoria(sessaoAuditoria, 'BACKUP_AUTOMATICO', 'ERRO', '');
+    try {
+      MailApp.sendEmail(
+        obterConfiguracaoProducao().emailValidacaoBackup,
+        'Rede de Protecao - falha no backup automatico',
+        'Nao foi possivel criar o backup automatico do RPM. Detalhes: ' + (erro.message || String(erro))
+      );
+    } catch (erroEmail) {
+      console.error('Falha ao enviar alerta de backup: ' + erroEmail.message);
+    }
+    throw erro;
+  } finally {
+    bloqueio.releaseLock();
+  }
+}
+
+function configurarBackupAutomaticoRPM() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) {
+    throw new Error('Somente o super usuario pode configurar o backup automatico.');
+  }
+
+  ScriptApp.getProjectTriggers().forEach(function (gatilho) {
+    if (gatilho.getHandlerFunction() === 'criarBackupAutomaticoRPM') {
+      ScriptApp.deleteTrigger(gatilho);
+    }
+  });
+
+  ScriptApp.newTrigger('criarBackupAutomaticoRPM')
+    .timeBased()
+    .everyDays(1)
+    .atHour(2)
+    .create();
+
+  return { sucesso: true, mensagem: 'Backup automatico diario configurado para aproximadamente 2h.' };
+}
+
+function enviarConfirmacaoBackupRPM(nomeArquivo, dataFormatada, linkArquivo) {
+  try {
+    const cota = MailApp.getRemainingDailyQuota();
+    if (cota < 1) return { enviado: false, erro: 'A cota diária de envio de e-mails do Google foi atingida.' };
+    const corpo = 'Backup do RPM concluído com sucesso em ' + dataFormatada + '.\n\nArquivo: ' + nomeArquivo + '\nLink: ' + linkArquivo + '\n\nEsta mensagem não contém dados de vítimas.';
+    const arquivoSeguro = escaparHtmlEmail(nomeArquivo);
+    const linkSeguro = escaparHtmlEmail(linkArquivo);
+    const corpoHtml =
+      '<div style="margin:0;padding:32px 16px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#17365d;">' +
+        '<table role="presentation" style="max-width:600px;width:100%;margin:0 auto;background:#ffffff;border-collapse:separate;border-spacing:0;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(25,53,88,.12);">' +
+          '<tr><td style="padding:22px 32px;background:#0d3b72;color:#ffffff;">' +
+            '<table role="presentation" style="width:100%;border-collapse:collapse;"><tr>' +
+              '<td style="vertical-align:middle;"><div style="font-size:22px;font-weight:700;">Rede de Proteção</div><div style="margin-top:5px;font-size:13px;opacity:.86;">Sistema Integrado da Rede de Proteção</div></td>' +
+              '<td style="width:64px;text-align:right;vertical-align:middle;"><img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" width="54" height="54" alt="Prefeitura de Votorantim" style="display:block;width:54px;height:54px;object-fit:contain;"></td>' +
+            '</tr></table>' +
+          '</td></tr>' +
+          '<tr><td style="padding:30px 32px;">' +
+            '<p style="margin:0 0 18px;font-size:16px;line-height:1.5;">Uma cópia de segurança da base do RPM foi criada com sucesso.</p>' +
+            '<div style="margin:24px 0;padding:20px;background:#edf5ff;border:1px solid #b8d5f1;border-radius:10px;text-align:center;">' +
+              '<div style="margin-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.8px;color:#39658f;text-transform:uppercase;">Backup concluído em</div>' +
+              '<div style="font-size:20px;font-weight:700;color:#0d3b72;">' + dataFormatada + '</div>' +
+              '<div style="margin-top:12px;font-size:14px;color:#39658f;word-break:break-word;">' + arquivoSeguro + '</div>' +
+            '</div>' +
+            '<p style="margin:0 0 18px;text-align:center;"><a href="' + linkSeguro + '" style="display:inline-block;padding:12px 18px;background:#0d6efd;color:#ffffff;text-decoration:none;border-radius:7px;font-size:14px;font-weight:700;">Abrir cópia de segurança</a></p>' +
+            '<p style="margin:0;padding:14px 16px;background:#fff8e8;border-left:4px solid #e2a529;font-size:14px;line-height:1.5;color:#5b4310;">Esta mensagem não contém dados de vítimas nem arquivos anexados.</p>' +
+          '</td></tr>' +
+          '<tr><td style="padding:16px 32px;background:#f4f7fb;border-top:1px solid #e4eaf1;font-size:12px;color:#718096;text-align:center;">Mensagem automática — não responda a este e-mail.</td></tr>' +
+        '</table>' +
+      '</div>';
+    MailApp.sendEmail({
+      to: obterConfiguracaoProducao().emailValidacaoBackup,
+      subject: 'Rede de Proteção — backup concluído',
+      body: corpo,
+      htmlBody: corpoHtml
+    });
+    return { enviado: true };
+  } catch (erro) {
+    return { enviado: false, erro: erro.message || String(erro) };
+  }
+}
+
+function ehSuperUsuario(email) {
+  return String(email || '').trim().toLowerCase() === obterConfiguracaoProducao().emailSuperUsuario;
+}
+
+function ehPerfilSomenteLeitura(sessao) {
+  const nivel = String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase();
+  return ['observador', 'observador/controle social'].includes(nivel);
+}
+
+function nivelSessaoNormalizado(sessao) {
+  return String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase();
+}
+
+function ehPerfilDesenvolvimento(sessao) {
+  return nivelSessaoNormalizado(sessao) === 'desenvolvimento';
+}
+
+function podeAcessarAdministracao(sessao) {
+  if (!sessao || sessaoExigeTrocaSenha(sessao)) return false;
+  if (ehSuperUsuario(sessao.email)) return true;
+  return ['admin', 'ti', 'desenvolvimento'].includes(nivelSessaoNormalizado(sessao));
+}
+
+function verificarAcessoAdministracao(tokenSessao) {
+  return podeAcessarAdministracao(obterSessaoValida(tokenSessao));
+}
+
+function ehPerfilObservador(sessao) {
+  return String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase() === 'observador';
+}
+
+function ehPerfilControleSocial(sessao) {
+  return String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase() === 'observador/controle social';
+}
+
+function podeAcessarAcompanhamentoControleSocial(sessao) {
+  const nivel = String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase();
+  return ['admin', 'gestor', 'observador/controle social', 'desenvolvimento'].includes(nivel);
+}
+
+function podeAcessarPainelGerencial(sessao) {
+  const nivel = String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').trim().toLowerCase();
+  return ['admin', 'gestor', 'observador', 'desenvolvimento'].includes(nivel);
+}
+
+function sessaoExigeTrocaSenha(sessao) {
+  return String(sessao && sessao.trocaSenhaObrigatoria || '').toUpperCase() === 'SIM';
+}
+
+function obterIndiceColunaUsuario(aba, titulo) {
+  const cabecalhos = aba.getRange(1, 1, 1, Math.max(aba.getLastColumn(), 1)).getValues()[0];
+  let indice = cabecalhos.indexOf(titulo);
+  if (indice === -1) {
+    indice = cabecalhos.length;
+    aba.getRange(1, indice + 1).setValue(titulo);
+  }
+  return indice;
+}
+
+function gerarSenhaTemporaria() {
+  const letrasMaiusculas = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const letrasMinusculas = 'abcdefghjkmnpqrstuvwxyz';
+  const numeros = '23456789';
+  const especiais = '!@#$%*';
+  const todos = letrasMaiusculas + letrasMinusculas + numeros + especiais;
+  let senha = letrasMaiusculas.charAt(Math.floor(Math.random() * letrasMaiusculas.length));
+  senha += letrasMinusculas.charAt(Math.floor(Math.random() * letrasMinusculas.length));
+  senha += numeros.charAt(Math.floor(Math.random() * numeros.length));
+  senha += especiais.charAt(Math.floor(Math.random() * especiais.length));
+  for (let i = 4; i < 12; i++) senha += todos.charAt(Math.floor(Math.random() * todos.length));
+  return senha.split('').sort(() => Math.random() - 0.5).join('');
+}
+
+function escaparHtmlEmail(valor) {
+  return String(valor || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function enviarAvisoAcesso(email, nome, assunto, senhaTemporaria) {
+  const nomeSeguro = escaparHtmlEmail(nome);
+  const assuntoSeguro = escaparHtmlEmail(assunto);
+  const senhaSegura = escaparHtmlEmail(senhaTemporaria);
+  const corpo = 'Olá, ' + (nome || '') + '.\n\n' +
+    'Sua conta no Sistema Integrado da Rede de Proteção foi ' + assunto + '.\n' +
+    'Senha temporária: ' + senhaTemporaria + '\n\n' +
+    'Ao acessar, escolha imediatamente uma senha pessoal.\n\n' +
+    'Se você não reconhece esta solicitação, entre em contato com a administração do sistema.';
+  const corpoHtml =
+    '<div style="margin:0;padding:32px 16px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#17365d;">' +
+      '<table role="presentation" style="max-width:600px;width:100%;margin:0 auto;background:#ffffff;border-collapse:separate;border-spacing:0;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(25,53,88,.12);">' +
+        '<tr><td style="padding:22px 32px;background:#0d3b72;color:#ffffff;">' +
+          '<table role="presentation" style="width:100%;border-collapse:collapse;"><tr>' +
+            '<td style="vertical-align:middle;">' +
+              '<div style="font-size:22px;font-weight:700;">Rede de Proteção</div>' +
+              '<div style="margin-top:5px;font-size:13px;opacity:.86;">Sistema Integrado da Rede de Proteção</div>' +
+            '</td>' +
+            '<td style="width:64px;text-align:right;vertical-align:middle;"><img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" width="54" height="54" alt="Prefeitura de Votorantim" style="display:block;width:54px;height:54px;object-fit:contain;"></td>' +
+          '</tr></table>' +
+        '</td></tr>' +
+        '<tr><td style="padding:30px 32px;">' +
+          '<p style="margin:0 0 18px;font-size:16px;line-height:1.5;">Olá, <strong>' + nomeSeguro + '</strong>.</p>' +
+          '<p style="margin:0 0 22px;font-size:16px;line-height:1.5;">Sua conta foi <strong>' + assuntoSeguro + '</strong>. Use a senha temporária abaixo para acessar a plataforma.</p>' +
+          '<div style="margin:24px 0;padding:20px;background:#edf5ff;border:1px solid #b8d5f1;border-radius:10px;text-align:center;">' +
+            '<div style="margin-bottom:8px;font-size:12px;font-weight:700;letter-spacing:.8px;color:#39658f;text-transform:uppercase;">Senha temporária</div>' +
+            '<div style="font-family:Consolas,Monaco,monospace;font-size:27px;font-weight:700;letter-spacing:1.5px;color:#0d3b72;word-break:break-all;">' + senhaSegura + '</div>' +
+          '</div>' +
+          '<p style="margin:0 0 16px;padding:14px 16px;background:#fff8e8;border-left:4px solid #e2a529;font-size:14px;line-height:1.5;color:#5b4310;">Por segurança, no primeiro acesso você deverá escolher uma senha pessoal.</p>' +
+          '<p style="margin:0;font-size:13px;line-height:1.5;color:#65758a;">Se você não reconhece esta solicitação, entre em contato com a administração do sistema.</p>' +
+        '</td></tr>' +
+        '<tr><td style="padding:16px 32px;background:#f4f7fb;border-top:1px solid #e4eaf1;font-size:12px;color:#718096;text-align:center;">Mensagem automática — não responda a este e-mail.</td></tr>' +
+      '</table>' +
+    '</div>';
+  MailApp.sendEmail({ to: email, subject: 'Rede de Proteção — acesso à plataforma', body: corpo, htmlBody: corpoHtml });
+}
+
+function autorizarEnvioEmail() {
+  // Execute esta funcao uma vez pelo editor do Apps Script para conceder a permissao de envio.
+  return { cotaRestante: MailApp.getRemainingDailyQuota() };
+}
 
 function conectarBanco() {
-  return SpreadsheetApp.openById(DB_ID);
+  return SpreadsheetApp.openById(obterConfiguracaoProducao().dbId);
 }
 
 function inicializarAbaSetores() {
@@ -45,12 +413,32 @@ function inicializarAbaSetores() {
   return aba;
 }
 
+const CACHE_SETOR_BASE_CHAVE = 'rpm:setores:base:v1';
+const CACHE_SETOR_BASE_TTL_SEGUNDOS = 300;
+
+function invalidarCacheSetoresBase() {
+  CacheService.getScriptCache().remove(CACHE_SETOR_BASE_CHAVE);
+}
+
 function listarSetoresBase() {
   try {
+    const cache = CacheService.getScriptCache();
+    const setoresEmCache = cache.get(CACHE_SETOR_BASE_CHAVE);
+    if (setoresEmCache) {
+      try {
+        return JSON.parse(setoresEmCache);
+      } catch (erroCache) {
+        cache.remove(CACHE_SETOR_BASE_CHAVE);
+      }
+    }
+
     const aba = inicializarAbaSetores();
     
     const dados = aba.getDataRange().getValues();
-    if (dados.length <= 1) return [];
+    if (dados.length <= 1) {
+      cache.put(CACHE_SETOR_BASE_CHAVE, '[]', CACHE_SETOR_BASE_TTL_SEGUNDOS);
+      return [];
+    }
 
     let setores = [];
     const head = dados[0];
@@ -78,6 +466,7 @@ function listarSetoresBase() {
         });
       }
     }
+    cache.put(CACHE_SETOR_BASE_CHAVE, JSON.stringify(setores), CACHE_SETOR_BASE_TTL_SEGUNDOS);
     return setores;
   } catch (error) {
     return [];
@@ -86,7 +475,7 @@ function listarSetoresBase() {
 
 function editarSetor(dados, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const aba = inicializarAbaSetores();
     const todosOsDados = aba.getDataRange().getValues();
@@ -104,6 +493,7 @@ function editarSetor(dados, tokenSessao) {
         const linhaSheet = i + 1;
         aba.getRange(linhaSheet, indexCor + 1).setValue(dados.cor || '');
         aba.getRange(linhaSheet, indexLogo + 1).setValue(dados.logo || '');
+        invalidarCacheSetoresBase();
         return { sucesso: true, mensagem: "Setor '" + dados.setorNomeAntigo + "' atualizado com sucesso!" };
       }
     }
@@ -116,7 +506,9 @@ function editarSetor(dados, tokenSessao) {
 
 function alternarStatusSetor(setorNome, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (ehPerfilDesenvolvimento(sessao)) return { sucesso: false, erro: "O perfil Desenvolvimento/Homologacao nao pode desativar setores." };
     const db = conectarBanco();
     const aba = db.getSheetByName('SETORES');
     if (!aba) return { sucesso: false, erro: "Aba SETORES não encontrada." };
@@ -136,6 +528,7 @@ function alternarStatusSetor(setorNome, tokenSessao) {
         const statusAtual = dados[i][iStatus] ? String(dados[i][iStatus]).trim() : 'Ativo';
         const novoStatus = statusAtual === 'Ativo' ? 'Inativo' : 'Ativo';
         aba.getRange(i + 1, iStatus + 1).setValue(novoStatus);
+        invalidarCacheSetoresBase();
         return { sucesso: true, mensagem: `Setor marcado como ${novoStatus}!` };
       }
     }
@@ -157,6 +550,7 @@ function criarSessaoUsuario(usuario) {
     nivelAcesso: usuario.nivelAcesso,
     corTema: usuario.corTema,
     urlLogo: usuario.urlLogo,
+    trocaSenhaObrigatoria: usuario.trocaSenhaObrigatoria || '',
     criadaEm: new Date().toISOString()
   };
 
@@ -250,10 +644,54 @@ function validarCredencialSenha(senhaInformada, credencialArmazenada) {
   return { valida: credencial === String(senhaInformada), migrar: credencial === String(senhaInformada) };
 }
 
+const MAX_TENTATIVAS_LOGIN = 5;
+const JANELA_FALHAS_LOGIN_SEGUNDOS = 600;
+const PREFIXO_CACHE_FALHAS_LOGIN = 'rpm:login-falhas:';
+
+function chaveFalhasLogin(email) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(email || '').trim().toLowerCase(),
+    Utilities.Charset.UTF_8
+  );
+  return PREFIXO_CACHE_FALHAS_LOGIN + bytesParaHex(digest).substring(0, 32);
+}
+
+function tentativasLoginEsgotadas(email) {
+  const valor = CacheService.getScriptCache().get(chaveFalhasLogin(email));
+  if (!valor) return false;
+  try {
+    return Number(JSON.parse(valor).contador || 0) >= MAX_TENTATIVAS_LOGIN;
+  } catch (erro) {
+    return false;
+  }
+}
+
+function registrarFalhaLogin(email) {
+  const cache = CacheService.getScriptCache();
+  const chave = chaveFalhasLogin(email);
+  let contador = 0;
+  const valor = cache.get(chave);
+  if (valor) {
+    try { contador = Number(JSON.parse(valor).contador || 0); } catch (erro) { contador = 0; }
+  }
+  contador += 1;
+  cache.put(chave, JSON.stringify({ contador: contador }), JANELA_FALHAS_LOGIN_SEGUNDOS);
+}
+
+function limparFalhasLogin(email) {
+  CacheService.getScriptCache().remove(chaveFalhasLogin(email));
+}
+
 function validarLoginManual(emailDigitado, senhaDigitada) {
   try {
     if (!emailDigitado || !senhaDigitada) {
       return { autenticado: false, erro: "E-mail e Senha são obrigatórios." };
+    }
+
+    const emailNormalizado = String(emailDigitado).toLowerCase().trim();
+    if (tentativasLoginEsgotadas(emailNormalizado)) {
+      return { autenticado: false, erro: "Credenciais inválidas ou utilizador não encontrado." };
     }
 
     const db = conectarBanco();
@@ -263,15 +701,19 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
       return { autenticado: false, erro: "Aba 'USUARIOS' não configurada." };
     }
 
-    const dados = abaUsuarios.getDataRange().getValues();
+    const ultimaLinhaUsuarios = abaUsuarios.getLastRow();
+    const dados = ultimaLinhaUsuarios > 0
+      ? abaUsuarios.getRange(1, 1, ultimaLinhaUsuarios, 6).getValues()
+      : [];
     let usuarioEncontrado = null;
     
     // Estrutura esperada: [0] Email, [1] Nome, [2] Setor/Órgão, [3] Nível de Acesso, [4] Senha
     for (let i = 1; i < dados.length; i++) {
       const emailLinha = String(dados[i][0]).toLowerCase().trim();
+      if (emailLinha !== emailNormalizado) continue;
       const resultadoSenha = validarCredencialSenha(senhaDigitada, dados[i][4]);
       
-      if (emailLinha === String(emailDigitado).toLowerCase().trim() && resultadoSenha.valida) {
+      if (resultadoSenha.valida) {
         if (resultadoSenha.migrar) {
           abaUsuarios.getRange(i + 1, 5).setValue(criarCredencialSenha(senhaDigitada));
         }
@@ -282,6 +724,7 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
           setor: dados[i][2] ? String(dados[i][2]).trim() : '',
           nivel: dados[i][3] ? String(dados[i][3]).trim() : '',
           nivelAcesso: dados[i][3] ? String(dados[i][3]).trim() : '', // Mantido por compatibilidade
+          trocaSenhaObrigatoria: dados[i][5] ? String(dados[i][5]).trim() : '',
           corTema: "",
           urlLogo: ""
         };
@@ -290,6 +733,10 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
     }
 
     if (usuarioEncontrado) {
+      if (ehSuperUsuario(usuarioEncontrado.email)) {
+        usuarioEncontrado.nivel = 'Admin';
+        usuarioEncontrado.nivelAcesso = 'Admin';
+      }
       // PROCV nos Setores para capturar a identidade visual
       const setores = listarSetoresBase();
       const setorData = setores.find(s => s.setor.toLowerCase() === usuarioEncontrado.setor.toLowerCase());
@@ -299,19 +746,161 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
         usuarioEncontrado.urlLogo = setorData.logo;
       }
       usuarioEncontrado.tokenSessao = criarSessaoUsuario(usuarioEncontrado);
+      limparFalhasLogin(emailNormalizado);
       return usuarioEncontrado;
     }
 
+    registrarFalhaLogin(emailNormalizado);
     return { autenticado: false, erro: "Credenciais inválidas ou utilizador não encontrado." };
   } catch (error) {
     return { autenticado: false, erro: "Erro interno no servidor: " + error.message };
   }
 }
 
+function alterarMinhaSenha(novaSenha, tokenSessao) {
+  try {
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!sessao) return { sucesso: false, erro: 'Sessao invalida ou expirada.' };
+    if (String(novaSenha || '').length < 10) return { sucesso: false, erro: 'A nova senha deve ter pelo menos 10 caracteres.' };
+
+    const aba = conectarBanco().getSheetByName('USUARIOS');
+    if (!aba) return { sucesso: false, erro: 'Base de usuarios nao encontrada.' };
+    const dados = aba.getDataRange().getValues();
+    const indiceTroca = obterIndiceColunaUsuario(aba, 'Troca de Senha Obrigatoria');
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).trim().toLowerCase() === String(sessao.email).trim().toLowerCase()) {
+        aba.getRange(i + 1, 5).setValue(criarCredencialSenha(novaSenha));
+        aba.getRange(i + 1, indiceTroca + 1).setValue('NAO');
+        sessao.trocaSenhaObrigatoria = 'NAO';
+        CacheService.getScriptCache().put('sessao:' + tokenSessao, JSON.stringify(sessao), TEMPO_SESSAO_SEGUNDOS);
+        registrarAuditoria(sessao, 'TROCA_SENHA_OBRIGATORIA', 'SUCESSO', '');
+        return { sucesso: true };
+      }
+    }
+    return { sucesso: false, erro: 'Usuario nao encontrado.' };
+  } catch (erro) {
+    return { sucesso: false, erro: erro.message };
+  }
+}
+
+function solicitarRedefinicaoSenha(email) {
+  const respostaPadrao = { sucesso: true, mensagem: 'Se houver uma conta vinculada a este e-mail, enviaremos as instruções.' };
+  try {
+    const emailLimpo = String(email || '').trim().toLowerCase();
+    if (!emailLimpo) return respostaPadrao;
+    const cache = CacheService.getScriptCache();
+    const chave = 'recuperacao-senha:' + emailLimpo;
+    if (cache.get(chave)) return respostaPadrao;
+    cache.put(chave, '1', 300);
+
+    const senhaTemporaria = gerarSenhaTemporaria();
+    const aba = conectarBanco().getSheetByName('USUARIOS');
+    if (!aba) return respostaPadrao;
+    const dados = aba.getDataRange().getValues();
+    const indiceTroca = obterIndiceColunaUsuario(aba, 'Troca de Senha Obrigatoria');
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).trim().toLowerCase() === emailLimpo) {
+        aba.getRange(i + 1, 5).setValue(criarCredencialSenha(senhaTemporaria));
+        aba.getRange(i + 1, indiceTroca + 1).setValue('SIM');
+        enviarAvisoAcesso(emailLimpo, dados[i][1], 'redefinida', senhaTemporaria);
+        return respostaPadrao;
+      }
+    }
+  } catch (erro) {
+    console.error('Falha na solicitacao de redefinicao: ' + erro.message);
+  }
+  return respostaPadrao;
+}
+
+function obterNomeParaExibicao(nomeRegistro, nomeSocial, preferenciaExibicao) {
+  const nomeSocialInformado = String(nomeSocial || '').trim();
+  return String(preferenciaExibicao || '').trim() === 'Nome social' && nomeSocialInformado
+    ? nomeSocialInformado
+    : (nomeRegistro || 'Não informado');
+}
+
+function cpfEhValido(cpf) {
+  const numeros = String(cpf || '').replace(/\D/g, '');
+  if (!/^\d{11}$/.test(numeros) || /^(\d)\1{10}$/.test(numeros)) return false;
+  const calcularDigito = (base, pesoInicial) => {
+    let soma = 0;
+    for (let i = 0; i < base.length; i++) soma += Number(base.charAt(i)) * (pesoInicial - i);
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+  const primeiro = calcularDigito(numeros.substring(0, 9), 10);
+  const segundo = calcularDigito(numeros.substring(0, 9) + primeiro, 11);
+  return Number(numeros.charAt(9)) === primeiro && Number(numeros.charAt(10)) === segundo;
+}
+
+function formatarCpfComMascara(cpf) {
+  const numeros = String(cpf || '').replace(/\D/g, '').substring(0, 11);
+  if (numeros.length !== 11) return String(cpf || '');
+  return numeros.substring(0, 3) + '.' + numeros.substring(3, 6) + '.' + numeros.substring(6, 9) + '-' + numeros.substring(9);
+}
+
+function normalizarCpfsBaseRPM() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) throw new Error('Somente o super usuario pode normalizar os CPFs da base.');
+
+  const bloqueio = LockService.getScriptLock();
+  if (!bloqueio.tryLock(30000)) throw new Error('Ja existe uma alteracao de dados em andamento.');
+  try {
+    const db = conectarBanco();
+    const alvos = [
+      { nomes: ['VÍTIMAS', 'VITIMAS'], coluna: 'CPF' },
+      { nomes: ['ATENDIMENTOS'], coluna: 'CPF' },
+      { nomes: ['COMPOSICAO_FAMILIAR'], coluna: 'CPF Responsável' }
+    ];
+    let totalAtualizados = 0;
+    alvos.forEach(function(alvo) {
+      let aba = null;
+      for (let i = 0; i < alvo.nomes.length && !aba; i++) aba = db.getSheetByName(alvo.nomes[i]);
+      if (!aba || aba.getLastRow() <= 1) return;
+      const ultimaColuna = aba.getLastColumn();
+      const cabecalho = aba.getRange(1, 1, 1, ultimaColuna).getValues()[0];
+      const indiceCpf = cabecalho.indexOf(alvo.coluna);
+      if (indiceCpf < 0) return;
+      const valores = aba.getRange(2, indiceCpf + 1, aba.getLastRow() - 1, 1).getValues();
+      valores.forEach(function(linha, indiceLinha) {
+        const original = String(linha[0] || '');
+        const normalizado = formatarCpfComMascara(original);
+        if (/^\d{11}$/.test(original) && normalizado !== original) {
+          aba.getRange(indiceLinha + 2, indiceCpf + 1).setValue(normalizado);
+          totalAtualizados++;
+        }
+      });
+    });
+    registrarAuditoria({ email: emailExecutor, nome: 'Normalização de CPFs', setor: 'SISTEMA', nivelAcesso: 'Admin' }, 'NORMALIZACAO_CPFS', 'SUCESSO_TOTAL_' + totalAtualizados, '');
+    return { sucesso: true, totalAtualizados: totalAtualizados, mensagem: 'CPFs normalizados com sucesso.' };
+  } finally {
+    bloqueio.releaseLock();
+  }
+}
+
+function normalizarTextoParaComparacao(valor) {
+  return String(valor || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function dataParaComparacao(valor) {
+  if (!valor) return '';
+  if (Object.prototype.toString.call(valor) === '[object Date]' && !isNaN(valor)) {
+    return Utilities.formatDate(valor, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  const texto = String(valor).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  const partes = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return partes ? partes[3] + '-' + partes[2] + '-' + partes[1] : texto;
+}
+
 function buscarVitimaPorCpf(cpf, tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
     if (!sessao) return null;
+    if (sessaoExigeTrocaSenha(sessao)) return null;
+    if (ehPerfilSomenteLeitura(sessao)) return null;
     const db = conectarBanco();
     const abaVitimas = db.getSheetByName('VÍTIMAS');
     if (!abaVitimas) return null;
@@ -341,9 +930,15 @@ function buscarVitimaPorCpf(cpf, tokenSessao) {
           }
         }
         
+        const nomeRegistro = dados[i][indexNome];
+        const nomeSocial = headers.indexOf('Nome Social') !== -1 ? dados[i][headers.indexOf('Nome Social')] : '';
+        const preferenciaExibicao = headers.indexOf('Preferência de Exibição') !== -1 ? dados[i][headers.indexOf('Preferência de Exibição')] : '';
         const resposta = {
           idVitima: dados[i][indexId],
-          nome: dados[i][indexNome],
+          nome: nomeRegistro,
+          nome_social: nomeSocial,
+          preferencia_exibicao: preferenciaExibicao,
+          nome_exibicao: obterNomeParaExibicao(nomeRegistro, nomeSocial, preferenciaExibicao),
           rg: headers.indexOf('RG') !== -1 ? dados[i][headers.indexOf('RG')] : '',
           nascimento: valorNasc,
           idade: headers.indexOf('Idade') !== -1 ? dados[i][headers.indexOf('Idade')] : '',
@@ -379,6 +974,8 @@ function buscarVitimaPorCpf(cpf, tokenSessao) {
 function salvarAtendimento(dadosFormulario, tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
+    if (sessaoExigeTrocaSenha(sessao)) return { sucesso: false, erro: 'Defina uma nova senha antes de usar o sistema.' };
+    if (ehPerfilSomenteLeitura(sessao)) return { sucesso: false, erro: 'Acesso negado: este perfil permite somente consulta e nao pode incluir ou alterar dados.' };
     if (!sessao) return { sucesso: false, erro: "Sessão inválida ou expirada." };
     dadosFormulario['Órgão de Origem'] = sessao.setor;
     dadosFormulario['_usuarioLogado'] = sessao.nome || sessao.email;
@@ -387,14 +984,25 @@ function salvarAtendimento(dadosFormulario, tokenSessao) {
     
     if (!abaAtend) return { sucesso: false, erro: "Aba ATENDIMENTOS não encontrada." };
 
-    // Pegamos a primeira linha (cabeçalho) para mapear
-    const headers = abaAtend.getRange(1, 1, 1, abaAtend.getLastColumn()).getValues()[0];
+    if (dadosFormulario['CPF']) {
+      dadosFormulario['CPF'] = formatarCpfComMascara(dadosFormulario['CPF']);
+    }
+
+    // Garante a coluna específica quando houver contrarreferência pelo CREAS.
+    let headers = abaAtend.getRange(1, 1, 1, abaAtend.getLastColumn()).getValues()[0];
+    if (dadosFormulario['Destino da Contrarreferência'] && headers.indexOf('Destino da Contrarreferência') === -1) {
+      abaAtend.getRange(1, headers.length + 1).setValue('Destino da Contrarreferência');
+      headers = abaAtend.getRange(1, 1, 1, abaAtend.getLastColumn()).getValues()[0];
+    }
+
     const novaLinha = new Array(headers.length).fill("");
     
     if (dadosFormulario['CPF']) {
-      const respVitima = upsertVitima(dadosFormulario['CPF'], dadosFormulario);
+      const respVitima = upsertVitima(dadosFormulario['CPF'], dadosFormulario, tokenSessao);
+      if (!respVitima || !respVitima.sucesso) return respVitima || { sucesso: false, erro: 'Não foi possível atualizar o prontuário.' };
       if (respVitima.idVitima) {
         dadosFormulario['ID_Vitima'] = respVitima.idVitima;
+        salvarComposicaoFamiliar(dadosFormulario['ID_Vitima'], dadosFormulario['CPF'], dadosFormulario['Composição Familiar'], sessao);
       }
     }
 
@@ -450,13 +1058,36 @@ function salvarAtendimento(dadosFormulario, tokenSessao) {
   }
 }
 
-function upsertVitima(cpf, dadosFormulario) {
+function salvarComposicaoFamiliar(idVitima, cpfResponsavel, composicao, sessao) {
+  if (!Array.isArray(composicao) || !composicao.length) return;
+  const db = conectarBanco();
+  let aba = db.getSheetByName('COMPOSICAO_FAMILIAR');
+  if (!aba) {
+    aba = db.insertSheet('COMPOSICAO_FAMILIAR');
+    aba.appendRow(['ID_Composição', 'ID_Vitima', 'CPF Responsável', 'Nome Filho', 'Idade Filho', 'Escola', 'Data de Cadastro', 'Registrado Por', 'Setor de Origem']);
+  }
+
+  const linhas = composicao.map(filho => {
+    const idade = String(filho.idade || '').trim();
+    if (!String(filho.nome || '').trim() || (idade && (!/^\d+$/.test(idade) || Number(idade) > 120))) {
+      throw new Error('Informe o nome de cada filho e uma idade válida, quando preenchida.');
+    }
+    return [Utilities.getUuid(), idVitima, formatarCpfComMascara(cpfResponsavel), String(filho.nome).trim(), idade, String(filho.escola || '').trim(), new Date(), sessao.nome || sessao.email, sessao.setor || ''];
+  });
+  aba.getRange(aba.getLastRow() + 1, 1, linhas.length, linhas[0].length).setValues(linhas);
+}
+
+function upsertVitima(cpf, dadosFormulario, tokenSessao) {
   try {
+    const sessao = obterSessaoValida(tokenSessao);
+    if (sessaoExigeTrocaSenha(sessao)) return { sucesso: false, erro: 'Defina uma nova senha antes de usar o sistema.' };
+    if (!sessao) return { sucesso: false, erro: 'Sessao invalida ou expirada.' };
+    if (ehPerfilSomenteLeitura(sessao)) return { sucesso: false, erro: 'Acesso negado: este perfil permite somente consulta e nao pode incluir ou alterar dados.' };
     const db = conectarBanco();
     let abaVitimas = db.getSheetByName('VÍTIMAS');
     if (!abaVitimas) {
       abaVitimas = db.insertSheet('VÍTIMAS');
-      abaVitimas.appendRow(['ID_Vitima', 'Data de Cadastro', 'Nome', 'CPF', 'RG', 'Data de Nascimento', 'Idade', 'Raça/Cor', 'Telefone Fixo', 'Celular / WhatsApp', 'CEP', 'Logradouro', 'Número', 'Bairro', 'Escolaridade', 'Renda Familiar', 'Possui Benefício Social', 'Bolsa Família', 'BPC', 'Aluguel Social Municipal', 'Aluguel Social Estadual', 'Outro Benefício Social', 'Descrição de Outro Benefício Social', 'Moradia']);
+      abaVitimas.appendRow(['ID_Vitima', 'Data de Cadastro', 'Nome', 'Nome Social', 'Preferência de Exibição', 'CPF', 'RG', 'Data de Nascimento', 'Idade', 'Raça/Cor', 'Telefone Fixo', 'Celular / WhatsApp', 'CEP', 'Logradouro', 'Número', 'Bairro', 'Escolaridade', 'Renda Familiar', 'Possui Benefício Social', 'Bolsa Família', 'BPC', 'Aluguel Social Municipal', 'Aluguel Social Estadual', 'Outro Benefício Social', 'Descrição de Outro Benefício Social', 'Moradia']);
     }
 
     const dados = abaVitimas.getDataRange().getValues();
@@ -476,6 +1107,8 @@ function upsertVitima(cpf, dadosFormulario) {
     const iId = checkCol('ID_Vitima');
     const iData = checkCol('Data de Cadastro');
     const iNome = checkCol('Nome');
+    const iNomeSocial = checkCol('Nome Social');
+    const iPreferenciaExibicao = checkCol('Preferência de Exibição');
     const iCpf = checkCol('CPF');
     const iRg = checkCol('RG');
     const iNasc = checkCol('Data de Nascimento');
@@ -510,20 +1143,61 @@ function upsertVitima(cpf, dadosFormulario) {
       }
     }
 
+    if (rowIndex === -1) {
+      if (!cpfEhValido(cpfLimpo)) {
+        return { sucesso: false, codigo: 'CPF_INVALIDO', erro: 'Informe um CPF válido antes de criar o prontuário.' };
+      }
+
+      if (!dadosFormulario['_confirmarPossivelDuplicidade']) {
+        const nomeInformado = normalizarTextoParaComparacao(dadosFormulario['Nome']);
+        const nascimentoInformado = dataParaComparacao(dadosFormulario['Data de Nascimento']);
+        const celularInformado = String(dadosFormulario['Celular / WhatsApp'] || '').replace(/\D/g, '');
+        const possiveisDuplicidades = [];
+
+        if (nomeInformado) {
+          for (let i = 1; i < dados.length; i++) {
+            const nomeExistente = normalizarTextoParaComparacao(dados[i][iNome]);
+            if (nomeExistente !== nomeInformado) continue;
+            const nascimentoExistente = dataParaComparacao(dados[i][iNasc]);
+            const celularExistente = String(dados[i][iCelular] || '').replace(/\D/g, '');
+            const coincideNascimento = nascimentoInformado && nascimentoExistente === nascimentoInformado;
+            const coincideCelular = celularInformado.length >= 8 && celularExistente === celularInformado;
+            if (coincideNascimento || coincideCelular) {
+              possiveisDuplicidades.push(coincideNascimento && coincideCelular ? 'nome, nascimento e telefone' : (coincideNascimento ? 'nome e nascimento' : 'nome e telefone'));
+            }
+          }
+        }
+
+        if (possiveisDuplicidades.length) {
+          registrarAuditoria(sessao, 'ALERTA_POSSIVEL_DUPLICIDADE', possiveisDuplicidades[0], cpfLimpo);
+          return {
+            sucesso: false,
+            codigo: 'POSSIVEL_DUPLICIDADE',
+            erro: 'Há indício de prontuário já existente. Confira o CPF antes de continuar.',
+            motivos: possiveisDuplicidades
+          };
+        }
+      }
+    }
+
     const novaLinha = rowIndex > -1 ? abaVitimas.getRange(rowIndex, 1, 1, headers.length).getValues()[0] : new Array(headers.length).fill("");
+    novaLinha[iCpf] = formatarCpfComMascara(cpfLimpo);
 
     if (rowIndex === -1) {
       // NOVO CADASTRO: preenche campos imutáveis
       idVitima = Utilities.getUuid();
       novaLinha[iId] = idVitima;
       novaLinha[iData] = new Date();
-      novaLinha[iCpf] = cpf;
       if (dadosFormulario['Nome']) novaLinha[iNome] = dadosFormulario['Nome'];
       if (dadosFormulario['RG']) novaLinha[iRg] = dadosFormulario['RG'];
       if (dadosFormulario['Data de Nascimento']) novaLinha[iNasc] = dadosFormulario['Data de Nascimento'];
       if (dadosFormulario['Idade']) novaLinha[iIdade] = dadosFormulario['Idade'];
     }
-    // Para vítima existente: NÃO sobrescreve Nome, RG e Data de Nascimento (campos imutáveis)
+    // Para vítima existente, nome de registro só pode ser alterado pelo Cadastro Completo.
+    if (rowIndex > -1 && dadosFormulario['_permitirAlterarNomeRegistro'] && dadosFormulario['Nome']) {
+      novaLinha[iNome] = dadosFormulario['Nome'];
+    }
+    // RG e Data de Nascimento permanecem imutáveis pelo fluxo comum.
 
     if (dadosFormulario['Telefone Fixo']) novaLinha[iTelFixo] = dadosFormulario['Telefone Fixo'];
     if (dadosFormulario['Celular / WhatsApp']) novaLinha[iCelular] = dadosFormulario['Celular / WhatsApp'];
@@ -531,7 +1205,8 @@ function upsertVitima(cpf, dadosFormulario) {
     if (dadosFormulario['Logradouro']) novaLinha[iEnd] = dadosFormulario['Logradouro'];
     if (dadosFormulario['Número']) novaLinha[iNum] = dadosFormulario['Número'];
     if (dadosFormulario['Bairro']) novaLinha[iBairro] = dadosFormulario['Bairro'];
-    if (dadosFormulario['Raça/Cor']) novaLinha[iRacaCor] = dadosFormulario['Raça/Cor'];
+    // Raça/Cor é dado sensível: após o cadastro inicial, não pode ser alterada pelo fluxo comum.
+    if (rowIndex === -1 && dadosFormulario['Raça/Cor']) novaLinha[iRacaCor] = dadosFormulario['Raça/Cor'];
     if (dadosFormulario['Escolaridade']) novaLinha[iEscola] = dadosFormulario['Escolaridade'];
     if (dadosFormulario['Renda Familiar']) novaLinha[iRenda] = dadosFormulario['Renda Familiar'];
     if (Object.prototype.hasOwnProperty.call(dadosFormulario, 'Possui Benefício Social')) novaLinha[iPossuiBeneficio] = dadosFormulario['Possui Benefício Social'] || '';
@@ -542,6 +1217,8 @@ function upsertVitima(cpf, dadosFormulario) {
     if (Object.prototype.hasOwnProperty.call(dadosFormulario, 'Outro Benefício Social')) novaLinha[iOutroBeneficio] = dadosFormulario['Outro Benefício Social'] || '';
     if (Object.prototype.hasOwnProperty.call(dadosFormulario, 'Descrição de Outro Benefício Social')) novaLinha[iDescricaoOutroBeneficio] = dadosFormulario['Descrição de Outro Benefício Social'] || '';
     if (dadosFormulario['Moradia']) novaLinha[iMoradia] = dadosFormulario['Moradia'];
+    if (Object.prototype.hasOwnProperty.call(dadosFormulario, 'Nome Social')) novaLinha[iNomeSocial] = dadosFormulario['Nome Social'] || '';
+    if (Object.prototype.hasOwnProperty.call(dadosFormulario, 'Preferência de Exibição')) novaLinha[iPreferenciaExibicao] = dadosFormulario['Preferência de Exibição'] || 'Nome de registro';
 
     // AUDITORIA: registra data/hora/usuário em atualizações
     if (rowIndex > -1) {
@@ -557,6 +1234,9 @@ function upsertVitima(cpf, dadosFormulario) {
       abaVitimas.getRange(rowIndex, 1, 1, headers.length).setValues([novaLinha]);
     } else {
       abaVitimas.appendRow(novaLinha);
+      if (dadosFormulario['_confirmarPossivelDuplicidade']) {
+        registrarAuditoria(sessao, 'CADASTRO_COM_DUPLICIDADE_CONFIRMADA', 'USUÁRIO_CONFIRMOU', cpfLimpo);
+      }
     }
     
     return { sucesso: true, idVitima: idVitima };
@@ -568,17 +1248,44 @@ function upsertVitima(cpf, dadosFormulario) {
 function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
+    if (sessaoExigeTrocaSenha(sessao)) return { status: 'erro', mensagem: 'Defina uma nova senha antes de usar o sistema.' };
     if (!sessao) return { status: 'erro', mensagem: 'Sessão inválida ou expirada.' };
+    if (ehPerfilObservador(sessao) || ehPerfilControleSocial(sessao)) return { status: 'erro', mensagem: 'Este perfil não possui acesso à consulta operacional.' };
     const db = conectarBanco();
     
     // Obter dados do usuário para LGPD
-    const abaUsuarios = db.getSheetByName('USUARIOS');
-    const dadosUsu = abaUsuarios.getDataRange().getValues();
     let setorUsuario = '';
     let nivelAcesso = '';
     
     setorUsuario = sessao.setor || '';
     nivelAcesso = String(sessao.nivelAcesso || sessao.nivel || '').toLowerCase();
+
+    // Carrega as configurações uma única vez por consulta. Antes, cada atendimento
+    // relia as abas SETORES e CONFIG_FORMULARIOS, multiplicando o tempo de resposta.
+    const setoresConsulta = listarSetoresBase();
+    const camposConsulta = listarCamposGlobais();
+    const camposPorIdConsulta = {};
+    camposConsulta.forEach(function(campo) {
+      camposPorIdConsulta[String(campo.id).trim().toLowerCase()] = campo;
+    });
+    const camposPorSetorConsulta = {};
+    setoresConsulta.forEach(function(setor) {
+      const chaveSetor = String(setor.setor || '').trim().toLowerCase();
+      const ids = String(setor.camposVinculados || '').split(',')
+        .map(function(id) { return id.trim().toLowerCase(); })
+        .filter(Boolean);
+      camposPorSetorConsulta[chaveSetor] = ids.map(function(id) {
+        return camposPorIdConsulta[id];
+      }).filter(Boolean);
+    });
+    const atendimentoTemInformacaoConsulta = function(dados, setorNome, cabecalhos) {
+      const campos = camposPorSetorConsulta[String(setorNome || '').trim().toLowerCase()] || [];
+      return campos.some(function(campo) {
+        const indice = cabecalhos.indexOf(campo.label);
+        const valor = indice >= 0 ? dados[indice] : undefined;
+        return valor !== undefined && valor !== null && String(valor).trim() !== '';
+      });
+    };
 
     if (!setorUsuario) return { status: 'nao_encontrado', erro: "Usuário sem setor definido na base." };
 
@@ -598,8 +1305,11 @@ function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
       const row = dadosVitimas[i];
       if (String(row[headV.indexOf('CPF')]).replace(/\D/g, '') === cpfLimpo) {
         idVitimaTarget = row[headV.indexOf('ID_Vitima')];
+        const nomeRegistro = row[headV.indexOf('Nome')];
+        const nomeSocial = headV.indexOf('Nome Social') >= 0 ? row[headV.indexOf('Nome Social')] : '';
+        const preferenciaExibicao = headV.indexOf('Preferência de Exibição') >= 0 ? row[headV.indexOf('Preferência de Exibição')] : '';
         vitimaEncontrada = {
-          nome: row[headV.indexOf('Nome')] || 'Não informado',
+          nome: obterNomeParaExibicao(nomeRegistro, nomeSocial, preferenciaExibicao),
           idade: headV.indexOf('Idade') >= 0 ? row[headV.indexOf('Idade')] : 'N/I',
           bairro: headV.indexOf('Bairro') >= 0 ? row[headV.indexOf('Bairro')] : 'N/I',
           medidaProtetiva: 'Não solicitada' // Placeholder
@@ -624,7 +1334,7 @@ function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
             
             const setorAtendimento = String(row[headA.indexOf('Órgão de Origem')]).trim();
 
-            if (!possuiInformacaoEspecificaDoSetor(row, setorAtendimento, headA)) continue;
+            if (!atendimentoTemInformacaoConsulta(row, setorAtendimento, headA)) continue;
             
             // Avalia Medida Protetiva
             const statusMP = headA.indexOf('Medida Protetiva') >= 0 ? row[headA.indexOf('Medida Protetiva')] : '';
@@ -644,7 +1354,7 @@ function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
             }
             
             // LGPD: Mascarar relato se não for Admin/TI e se o setor for diferente
-            if (nivelAcesso !== 'admin' && nivelAcesso !== 'ti' && setorAtendimento.toLowerCase() !== setorUsuario.toLowerCase()) {
+            if (nivelAcesso !== 'admin' && nivelAcesso !== 'ti' && nivelAcesso !== 'desenvolvimento' && setorAtendimento.toLowerCase() !== setorUsuario.toLowerCase()) {
               relato = "Informação protegida por LGPD. Conteúdo restrito ao órgão emissor.";
             }
 
@@ -654,13 +1364,35 @@ function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
                try { dataFormatada = Utilities.formatDate(new Date(rawDate), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"); } catch(e){}
             }
 
+            const mesmoSetor = setorAtendimento.toLowerCase() === setorUsuario.toLowerCase();
+            let detalhesDoSetor = [];
+            if (mesmoSetor) {
+              const camposDoSetor = camposPorSetorConsulta[setorAtendimento.toLowerCase()] || [];
+              camposDoSetor.forEach(campo => {
+                const indice = headA.indexOf(campo.label);
+                if (indice >= 0 && row[indice] !== '' && row[indice] !== null) {
+                  let valorCampo = row[indice];
+                  if (campo.tipo === 'date' && valorCampo) {
+                    try { valorCampo = Utilities.formatDate(new Date(valorCampo), Session.getScriptTimeZone(), 'dd/MM/yyyy'); } catch(e) {}
+                  }
+                  detalhesDoSetor.push({ rotulo: campo.label, valor: String(valorCampo), tipo: campo.tipo });
+                }
+              });
+              const indiceDestinoContrarreferencia = headA.indexOf('Destino da Contrarreferência');
+              if (indiceDestinoContrarreferencia >= 0 && row[indiceDestinoContrarreferencia]) {
+                detalhesDoSetor.push({ rotulo: 'Destino da contrarreferência', valor: String(row[indiceDestinoContrarreferencia]), tipo: 'select' });
+              }
+              if (relato) detalhesDoSetor.push({ rotulo: 'Observação', valor: relato, tipo: 'textarea' });
+            }
+
             listaAtendimentos.push({
               dataRaw: rawDate ? new Date(rawDate).getTime() : 0,
               data: dataFormatada,
               orgao: setorAtendimento || 'N/I',
               acaoStatus: acaoStatus.length > 0 ? acaoStatus.join(' | ') : 'Atendimento Padrão',
               relato: relato || 'Sem observações detalhadas',
-              observacao: row[17] ? String(row[17]).trim() : ""
+              observacao: row[17] ? String(row[17]).trim() : "",
+              detalhesDoSetor: detalhesDoSetor
             });
           }
         }
@@ -677,18 +1409,107 @@ function consultarProntuarioIntegrado(cpfLimpo, tokenSessao) {
   }
 }
 
+function obterAcompanhamentosControleSocial(tokenSessao, cpfFiltro) {
+  try {
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!sessao) return { erro: 'Sessão inválida ou expirada.' };
+    if (sessaoExigeTrocaSenha(sessao)) return { erro: 'Defina uma nova senha antes de usar o sistema.' };
+    if (!podeAcessarAcompanhamentoControleSocial(sessao)) return { erro: 'Acesso negado.' };
+
+    const setorUsuario = String(sessao.setor || '').trim();
+    if (!setorUsuario) return { erro: 'Usuário sem órgão definido.' };
+    const db = conectarBanco();
+    const abaVitimas = db.getSheetByName('VITIMAS') || db.getSheetByName('VÍTIMAS');
+    const abaAtendimentos = db.getSheetByName('ATENDIMENTOS');
+    if (!abaVitimas || !abaAtendimentos) return { itens: [], setor: setorUsuario };
+
+    const dadosVitimas = abaVitimas.getDataRange().getValues();
+    const vitimas = {};
+    const cpfLimpo = String(cpfFiltro || '').replace(/\D/g, '');
+    if (dadosVitimas.length > 1) {
+      const cabecalhoVitimas = dadosVitimas[0];
+      const iId = cabecalhoVitimas.indexOf('ID_Vitima');
+      const iNome = cabecalhoVitimas.indexOf('Nome');
+      const iNomeSocial = cabecalhoVitimas.indexOf('Nome Social');
+      const iPreferencia = cabecalhoVitimas.indexOf('Preferência de Exibição');
+      const iIdade = cabecalhoVitimas.indexOf('Idade');
+      const iBairro = cabecalhoVitimas.indexOf('Bairro');
+      const iCpf = cabecalhoVitimas.indexOf('CPF');
+      for (let i = 1; i < dadosVitimas.length; i++) {
+        const id = String(dadosVitimas[i][iId] || '').trim();
+        if (!id) continue;
+        if (cpfLimpo && String(dadosVitimas[i][iCpf] || '').replace(/\D/g, '') !== cpfLimpo) continue;
+        vitimas[id] = {
+          nome: obterNomeParaExibicao(dadosVitimas[i][iNome], iNomeSocial >= 0 ? dadosVitimas[i][iNomeSocial] : '', iPreferencia >= 0 ? dadosVitimas[i][iPreferencia] : ''),
+          idade: iIdade >= 0 ? dadosVitimas[i][iIdade] : '',
+          bairro: iBairro >= 0 ? dadosVitimas[i][iBairro] : ''
+        };
+      }
+    }
+
+    const dadosAtendimentos = abaAtendimentos.getDataRange().getValues();
+    if (dadosAtendimentos.length <= 1) return { itens: [], setor: setorUsuario };
+    const cabecalho = dadosAtendimentos[0];
+    const iIdVitima = cabecalho.indexOf('ID_Vitima');
+    const iSetor = cabecalho.indexOf('Órgão de Origem');
+    const iData = cabecalho.indexOf('Data do Atendimento');
+    const iRelato = cabecalho.indexOf('Relato/Observações');
+    const configuracaoSetor = listarSetoresBase().find(item => String(item.setor || '').trim().toLowerCase() === setorUsuario.toLowerCase());
+    const idsCampos = configuracaoSetor && configuracaoSetor.camposVinculados
+      ? configuracaoSetor.camposVinculados.split(',').map(id => String(id).trim().toLowerCase()) : [];
+    const camposDoSetor = listarCamposGlobais().filter(campo => idsCampos.includes(String(campo.id || '').trim().toLowerCase()));
+    const porVitima = {};
+
+    for (let i = 1; i < dadosAtendimentos.length; i++) {
+      const linha = dadosAtendimentos[i];
+      const setorAtendimento = String(linha[iSetor] || '').trim();
+      if (setorAtendimento.toLowerCase() !== setorUsuario.toLowerCase()) continue;
+      if (!possuiInformacaoEspecificaDoSetor(linha, setorAtendimento, cabecalho)) continue;
+      const idVitima = String(linha[iIdVitima] || '').trim();
+      if (!idVitima || !vitimas[idVitima]) continue;
+
+      const detalhes = [];
+      camposDoSetor.forEach(campo => {
+        const indice = cabecalho.indexOf(campo.label);
+        if (indice < 0 || linha[indice] === '' || linha[indice] === null) return;
+        let valor = linha[indice];
+        if (campo.tipo === 'date') {
+          try { valor = Utilities.formatDate(new Date(valor), Session.getScriptTimeZone(), 'dd/MM/yyyy'); } catch (erro) {}
+        }
+        detalhes.push({ rotulo: campo.label, valor: String(valor), tipo: campo.tipo });
+      });
+      const iDestino = cabecalho.indexOf('Destino da Contrarreferência');
+      if (iDestino >= 0 && linha[iDestino]) detalhes.push({ rotulo: 'Destino da contrarreferência', valor: String(linha[iDestino]), tipo: 'select' });
+      if (iRelato >= 0 && linha[iRelato]) detalhes.push({ rotulo: 'Observação', valor: String(linha[iRelato]), tipo: 'textarea' });
+
+      const valorAcao = cabecalho.indexOf('Ação / Status') >= 0 ? linha[cabecalho.indexOf('Ação / Status')] : '';
+      const dataRaw = linha[iData] ? new Date(linha[iData]).getTime() : 0;
+      const data = dataRaw ? Utilities.formatDate(new Date(linha[iData]), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : 'Data não informada';
+      const evolucao = { data: data, dataRaw: dataRaw, resumo: String(valorAcao || 'Atendimento registrado'), detalhes: detalhes };
+      if (!porVitima[idVitima]) porVitima[idVitima] = { idVitima: idVitima, nome: vitimas[idVitima].nome, idade: vitimas[idVitima].idade, bairro: vitimas[idVitima].bairro, evolucoes: [] };
+      porVitima[idVitima].evolucoes.push(evolucao);
+    }
+
+    const itens = Object.keys(porVitima).map(id => {
+      const item = porVitima[id];
+      item.evolucoes.sort((a, b) => b.dataRaw - a.dataRaw);
+      item.ultimaEvolucao = item.evolucoes[0];
+      item.totalEvolucoes = item.evolucoes.length;
+      return item;
+    }).sort((a, b) => b.ultimaEvolucao.dataRaw - a.ultimaEvolucao.dataRaw);
+    registrarAuditoria(sessao, 'CONSULTA_ACOMPANHAMENTO_ORGAO', 'SUCESSO', setorUsuario);
+    return { itens: itens, setor: setorUsuario };
+  } catch (erro) {
+    return { erro: 'Não foi possível carregar os acompanhamentos: ' + erro.message };
+  }
+}
+
 function obterDadosDashboard(tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
     if (!sessao) return { erro: "Sessão inválida ou expirada." };
+    if (!podeAcessarPainelGerencial(sessao)) return { erro: "Acesso Negado: perfil sem permissão para o Painel Gerencial." };
     const db = conectarBanco();
-    const nivelAcesso = String(sessao.nivelAcesso || sessao.nivel || '');
-    
-    // RBAC: Verificação de acesso para tela gerencial
-    const niveisPermitidos = ['admin', 'diretoria', 'secretario', 'secretário'];
-    if (!nivelAcesso || !niveisPermitidos.includes(nivelAcesso.toLowerCase())) {
-      return { erro: "Acesso Negado: Apenas gestores podem visualizar o Dashboard Gerencial." };
-    }
 
     const abaAtend = db.getSheetByName('ATENDIMENTOS');
     if (!abaAtend) return { erro: "Aba ATENDIMENTOS não encontrada." };
@@ -699,6 +1520,7 @@ function obterDadosDashboard(tokenSessao) {
     const mapaVitimas = {};
     if (abaVitimas) {
       const dadosVitimas = abaVitimas.getDataRange().getValues();
+      var perfisDashboard = montarPerfisFiltrosDashboard_(db, dadosVitimas);
       const cabecalhoVitimas = dadosVitimas[0];
       const indexIdVitimaV = Math.max(cabecalhoVitimas.indexOf('ID_Vitima'), cabecalhoVitimas.indexOf('ID_Vítima'));
       const indexBairroVitima = cabecalhoVitimas.indexOf('Bairro');
@@ -728,7 +1550,7 @@ function obterDadosDashboard(tokenSessao) {
     
     const dadosAtend = abaAtend.getDataRange().getValues();
     if (dadosAtend.length <= 1) {
-      return { totalAtendimentos: 0, atendimentosPorOrgao: {}, atendimentosMensais: {}, atendimentosPorBairro: {} };
+      return { totalAtendimentos: 0, atendimentosPorOrgao: {}, atendimentosMensais: {}, atendimentosPorBairro: {}, dadosBrutos: [], perfis: perfisDashboard || {} };
     }
     
     const head = dadosAtend[0];
@@ -796,7 +1618,8 @@ function obterDadosDashboard(tokenSessao) {
     return {
       totalVitimas: setVitimasUnicas.size,
       totalAtendimentos: totalBruto,
-      dadosBrutos: arrayDeAtendimentos
+      dadosBrutos: arrayDeAtendimentos,
+      perfis: perfisDashboard || {}
     };
     
   } catch (error) {
@@ -804,11 +1627,57 @@ function obterDadosDashboard(tokenSessao) {
   }
 }
 
+function montarPerfisFiltrosDashboard_(db, dados) {
+  if (!dados || dados.length < 2) return {};
+  const cabecalho = dados[0];
+  const indiceId = Math.max(cabecalho.indexOf('ID_Vitima'), cabecalho.indexOf('ID_Vítima'));
+  if (indiceId < 0) return {};
+  const indiceIdade = cabecalho.indexOf('Idade');
+  const indiceRaca = cabecalho.indexOf('Raça/Cor');
+  const colunasBeneficios = {
+    'Bolsa Família': cabecalho.indexOf('Bolsa Família'),
+    'BPC': cabecalho.indexOf('BPC'),
+    'Aluguel Social Municipal': cabecalho.indexOf('Aluguel Social Municipal'),
+    'Aluguel Social Estadual': cabecalho.indexOf('Aluguel Social Estadual'),
+    'Outro benefício social': cabecalho.indexOf('Outro Benefício Social')
+  };
+  const indicePossui = cabecalho.indexOf('Possui Benefício Social');
+  const vitimasComFilhos = {};
+  const abaComposicao = db.getSheetByName('COMPOSICAO_FAMILIAR');
+  if (abaComposicao && abaComposicao.getLastRow() > 1) {
+    const dadosComposicao = abaComposicao.getDataRange().getValues();
+    const cabecalhoComposicao = dadosComposicao[0];
+    const indiceIdVitimaComposicao = cabecalhoComposicao.indexOf('ID_Vitima');
+    if (indiceIdVitimaComposicao >= 0) {
+      for (let i = 1; i < dadosComposicao.length; i++) {
+        const idVitimaComposicao = String(dadosComposicao[i][indiceIdVitimaComposicao] || '').trim();
+        if (idVitimaComposicao) vitimasComFilhos[idVitimaComposicao] = true;
+      }
+    }
+  }
+  const perfis = {};
+  for (let i = 1; i < dados.length; i++) {
+    const id = dados[i][indiceId];
+    if (!id) continue;
+    const beneficios = Object.keys(colunasBeneficios).filter(function(nome) {
+      const indice = colunasBeneficios[nome];
+      return indice > -1 && String(dados[i][indice]).trim().toLowerCase() === 'sim';
+    });
+    if (!beneficios.length && indicePossui > -1 && String(dados[i][indicePossui]).trim().toLowerCase() === 'sim') beneficios.push('Benefício social não especificado');
+    perfis[String(id).trim()] = {
+      idade: indiceIdade > -1 ? Number(dados[i][indiceIdade]) || null : null,
+      racaCor: indiceRaca > -1 ? String(dados[i][indiceRaca] || '').trim() : '',
+      beneficios: beneficios,
+      possuiFilhos: !!vitimasComFilhos[String(id).trim()]
+    };
+  }
+  return perfis;
+}
+
 function obterPerfisFiltrosDashboard(tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
-    const nivel = String(sessao && (sessao.nivelAcesso || sessao.nivel) || '').toLowerCase();
-    if (['admin', 'diretoria', 'secretario', 'secretário'].indexOf(nivel) < 0) return { erro: 'Acesso negado.' };
+    if (!podeAcessarPainelGerencial(sessao)) return { erro: 'Acesso negado.' };
     const db = conectarBanco();
     const aba = db.getSheetByName('VITIMAS') || db.getSheetByName('VÍTIMAS');
     if (!aba) return { perfis: {} };
@@ -827,6 +1696,19 @@ function obterPerfisFiltrosDashboard(tokenSessao) {
       'Outro benefício social': cabecalho.indexOf('Outro Benefício Social')
     };
     const indicePossui = cabecalho.indexOf('Possui Benefício Social');
+    const vitimasComFilhos = {};
+    const abaComposicao = db.getSheetByName('COMPOSICAO_FAMILIAR');
+    if (abaComposicao && abaComposicao.getLastRow() > 1) {
+      const dadosComposicao = abaComposicao.getDataRange().getValues();
+      const cabecalhoComposicao = dadosComposicao[0];
+      const indiceIdVitimaComposicao = cabecalhoComposicao.indexOf('ID_Vitima');
+      if (indiceIdVitimaComposicao >= 0) {
+        for (let i = 1; i < dadosComposicao.length; i++) {
+          const idVitimaComposicao = String(dadosComposicao[i][indiceIdVitimaComposicao] || '').trim();
+          if (idVitimaComposicao) vitimasComFilhos[idVitimaComposicao] = true;
+        }
+      }
+    }
     const perfis = {};
     for (let i = 1; i < dados.length; i++) {
       const id = dados[i][indiceId];
@@ -839,7 +1721,8 @@ function obterPerfisFiltrosDashboard(tokenSessao) {
       perfis[String(id).trim()] = {
         idade: indiceIdade > -1 ? Number(dados[i][indiceIdade]) || null : null,
         racaCor: indiceRaca > -1 ? String(dados[i][indiceRaca] || '').trim() : '',
-        beneficios: beneficios
+        beneficios: beneficios,
+        possuiFilhos: !!vitimasComFilhos[String(id).trim()]
       };
     }
     return { perfis: perfis };
@@ -876,21 +1759,18 @@ function geocodificarEnderecoDashboard_(idVitima, endereco) {
 function verificarAdminAbsoluto(tokenSessao) {
   const sessao = obterSessaoValida(tokenSessao);
   if (!sessao) return false;
+  if (sessaoExigeTrocaSenha(sessao)) return false;
+  if (ehSuperUsuario(sessao.email)) return true;
+  const nivel = String(sessao.nivelAcesso || sessao.nivel || '').trim().toLowerCase();
+  return nivel === 'admin' || nivel === 'ti' || nivel === 'desenvolvimento';
+}
+
+function verificarAdministradorCritico(tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || sessaoExigeTrocaSenha(sessao)) return false;
+  if (ehSuperUsuario(sessao.email)) return true;
   const nivel = String(sessao.nivelAcesso || sessao.nivel || '').trim().toLowerCase();
   return nivel === 'admin' || nivel === 'ti';
-  return true; // Bypass temporário para restaurar acesso geral
-  const db = conectarBanco();
-  const abaUsuarios = db.getSheetByName('USUARIOS');
-  if (!abaUsuarios) return false;
-  
-  const dadosUsuarios = abaUsuarios.getDataRange().getValues();
-  for (let i = 1; i < dadosUsuarios.length; i++) {
-    if (String(dadosUsuarios[i][0]).toLowerCase().trim() === email.toLowerCase()) {
-      const nivel = String(dadosUsuarios[i][3]).trim().toLowerCase();
-      return nivel === 'admin';
-    }
-  }
-  return false;
 }
 
 function listarUsuariosDaBase(tokenSessao) {
@@ -909,6 +1789,7 @@ function listarUsuariosDaBase(tokenSessao) {
           nome: dados[i][1],
           setor: dados[i][2],
           nivelAcesso: dados[i][3],
+          superUsuario: ehSuperUsuario(dados[i][0]),
         });
       }
     }
@@ -920,13 +1801,14 @@ function listarUsuariosDaBase(tokenSessao) {
 
 function salvarNovoUsuario(dadosUsuario, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const db = conectarBanco();
     const abaUsuarios = db.getSheetByName('USUARIOS');
     const dados = abaUsuarios.getDataRange().getValues();
     
     const emailNovo = String(dadosUsuario.email).trim().toLowerCase();
+    const nivelFinal = ehSuperUsuario(emailNovo) ? 'Admin' : dadosUsuario.nivel;
     let linhaExistente = -1;
     
     // Busca se o email já existe
@@ -941,7 +1823,7 @@ function salvarNovoUsuario(dadosUsuario, tokenSessao) {
       // UPDATE (Edição)
       abaUsuarios.getRange(linhaExistente, 2).setValue(dadosUsuario.nome);
       abaUsuarios.getRange(linhaExistente, 3).setValue(dadosUsuario.setor);
-      abaUsuarios.getRange(linhaExistente, 4).setValue(dadosUsuario.nivel);
+      abaUsuarios.getRange(linhaExistente, 4).setValue(nivelFinal);
       
       // Atualiza a senha apenas se não for vazia
       if (dadosUsuario.senha && String(dadosUsuario.senha).trim() !== "") {
@@ -953,23 +1835,25 @@ function salvarNovoUsuario(dadosUsuario, tokenSessao) {
     } else {
       // INSERT (Novo Usuário)
       // Se não enviou senha, gera aleatória
-      let senhaFinal = dadosUsuario.senha ? String(dadosUsuario.senha).trim() : '';
-      if (!senhaFinal) {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        for(let i = 0; i < 6; i++) {
-          senhaFinal += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-      }
+      const senhaFinal = gerarSenhaTemporaria();
       
       abaUsuarios.appendRow([
         emailNovo,
         dadosUsuario.nome,
         dadosUsuario.setor,
-        dadosUsuario.nivel,
+        nivelFinal,
         criarCredencialSenha(senhaFinal)
       ]);
-      
-      return { sucesso: true, mensagem: 'Usuário cadastrado com sucesso.', senhaTemporaria: senhaFinal };
+      const linhaNova = abaUsuarios.getLastRow();
+      const indiceTroca = obterIndiceColunaUsuario(abaUsuarios, 'Troca de Senha Obrigatoria');
+      abaUsuarios.getRange(linhaNova, indiceTroca + 1).setValue('SIM');
+      try {
+        enviarAvisoAcesso(emailNovo, dadosUsuario.nome, 'criada', senhaFinal);
+        return { sucesso: true, mensagem: 'Usuario cadastrado e senha temporaria enviada por e-mail.', avisoEmail: true };
+      } catch (erroEmail) {
+        console.error('Usuario cadastrado, mas falhou o envio de e-mail: ' + erroEmail.message);
+        return { sucesso: true, mensagem: 'Usuario cadastrado, mas nao foi possivel enviar o e-mail. Verifique a autorizacao do Apps Script e tente redefinir a senha.', avisoEmail: false };
+      }
     }
   } catch (error) {
     return { sucesso: false, erro: "Erro ao salvar usuário: " + error.message };
@@ -978,13 +1862,16 @@ function salvarNovoUsuario(dadosUsuario, tokenSessao) {
 
 function excluirUsuario(emailExcluir, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (ehPerfilDesenvolvimento(sessao)) return { sucesso: false, erro: "O perfil Desenvolvimento/Homologacao nao pode excluir usuarios." };
     
     const db = conectarBanco();
     const abaUsuarios = db.getSheetByName('USUARIOS');
     const dados = abaUsuarios.getDataRange().getValues();
     
     const emailAlvo = String(emailExcluir).trim().toLowerCase();
+    if (ehSuperUsuario(emailAlvo)) return { sucesso: false, erro: 'O super usuário protegido não pode ser excluído.' };
     let linhaEncontrada = -1;
     
     for (let i = 1; i < dados.length; i++) {
@@ -1008,7 +1895,7 @@ function excluirUsuario(emailExcluir, tokenSessao) {
 
 function salvarNovoSetor(dados, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const db = conectarBanco();
     const abaSetores = db.getSheetByName('SETORES');
@@ -1034,6 +1921,7 @@ function salvarNovoSetor(dados, tokenSessao) {
       dados.logo
     ]);
     
+    invalidarCacheSetoresBase();
     return { sucesso: true, mensagem: "Setor institucional cadastrado com sucesso!" };
   } catch (error) {
     return { sucesso: false, erro: "Erro ao salvar setor: " + error.message };
@@ -1173,6 +2061,7 @@ function buscarCamposFormulario(emailUsuario, tokenSessao) {
     const ehSuperUser = usuarioObj && (
       usuarioObj.perfil.toLowerCase() === 'admin' || 
       usuarioObj.perfil.toLowerCase() === 'ti' || 
+      usuarioObj.perfil.toLowerCase() === 'desenvolvimento' ||
       usuarioObj.setor.toLowerCase() === 'ti'
     );
     
@@ -1211,7 +2100,7 @@ function buscarCamposFormulario(emailUsuario, tokenSessao) {
  */
 function adicionarNovoCampoFormulario(dados, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const label = String(dados.label).trim();
     const tipo = String(dados.tipo).trim().toLowerCase();
@@ -1270,7 +2159,7 @@ function adicionarNovoCampoFormulario(dados, tokenSessao) {
  */
 function editarCampoGlobal(dados, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const idColuna = String(dados.idColuna).trim();
     const label = String(dados.label).trim();
@@ -1313,7 +2202,9 @@ function editarCampoGlobal(dados, tokenSessao) {
  */
 function inativarCampoFormulario(idColuna, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (ehPerfilDesenvolvimento(sessao)) return { sucesso: false, erro: "O perfil Desenvolvimento/Homologacao nao pode inativar campos." };
     
     const aba = inicializarAbaFormulariosConfig();
     const dados = aba.getDataRange().getValues();
@@ -1343,7 +2234,7 @@ function inativarCampoFormulario(idColuna, tokenSessao) {
  */
 function salvarCamposDoSetor(setorNome, arrayDeIds, tokenSessao) {
   try {
-    if (!verificarAdminAbsoluto(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
+    if (!verificarAcessoAdministracao(tokenSessao)) return { sucesso: false, erro: "Acesso Negado." };
     
     const db = conectarBanco();
     const aba = db.getSheetByName('SETORES');
@@ -1377,12 +2268,15 @@ function autorizarDrive() {
 function salvarEdicaoCadastroVitima(dadosFormulario, tokenSessao) {
   try {
     const sessao = obterSessaoValida(tokenSessao);
+    if (sessaoExigeTrocaSenha(sessao)) return { sucesso: false, erro: 'Defina uma nova senha antes de usar o sistema.' };
+    if (ehPerfilSomenteLeitura(sessao)) return { sucesso: false, erro: 'Acesso negado: este perfil permite somente consulta e nao pode incluir ou alterar dados.' };
     if (!sessao) return { sucesso: false, erro: 'Sessão inválida ou expirada.' };
     dadosFormulario['_usuarioLogado'] = sessao.nome || sessao.email;
+    dadosFormulario['_permitirAlterarNomeRegistro'] = true;
     if (!dadosFormulario['CPF']) {
       return { sucesso: false, erro: "CPF é obrigatório para editar o cadastro." };
     }
-    const resp = upsertVitima(dadosFormulario['CPF'], dadosFormulario);
+    const resp = upsertVitima(dadosFormulario['CPF'], dadosFormulario, tokenSessao);
     if (resp.sucesso) {
       registrarAuditoria(sessao, 'EDICAO_CADASTRO_COMPLETO', 'SUCESSO', dadosFormulario['CPF']);
       return { sucesso: true, mensagem: "Cadastro da vítima atualizado com sucesso." };
@@ -1391,5 +2285,88 @@ function salvarEdicaoCadastroVitima(dadosFormulario, tokenSessao) {
     }
   } catch (e) {
     return { sucesso: false, erro: e.message };
+  }
+}
+
+function podeCorrigirCpf(sessao) {
+  if (!sessao) return false;
+  if (ehSuperUsuario(sessao.email)) return true;
+  const nivel = String(sessao.nivelAcesso || sessao.nivel || '').trim().toLowerCase();
+  return ['admin', 'ti', 'gestor', 'desenvolvimento'].includes(nivel);
+}
+
+function corrigirCpfVitima(cpfAtual, cpfNovo, motivo, tokenSessao) {
+  const bloqueio = LockService.getScriptLock();
+  if (!bloqueio.tryLock(30000)) {
+    return { sucesso: false, erro: 'Já existe uma alteração de cadastro em andamento. Aguarde alguns instantes e tente novamente.' };
+  }
+
+  try {
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!sessao) return { sucesso: false, erro: 'Sessão inválida ou expirada.' };
+    if (sessaoExigeTrocaSenha(sessao)) return { sucesso: false, erro: 'Defina uma nova senha antes de usar o sistema.' };
+    if (!podeCorrigirCpf(sessao)) {
+      return { sucesso: false, codigo: 'ACESSO_NEGADO', erro: 'Somente Admin, TI ou Gestor podem corrigir o CPF de um prontuário.' };
+    }
+
+    const cpfAnterior = String(cpfAtual || '').replace(/\D/g, '');
+    const cpfCorrigido = String(cpfNovo || '').replace(/\D/g, '');
+    const justificativa = String(motivo || '').trim();
+
+    if (cpfCorrigido.length !== 11) return { sucesso: false, codigo: 'CPF_INVALIDO', erro: 'Digite os 11 n\u00fameros do CPF. Os pontos e o h\u00edfen s\u00e3o adicionados automaticamente.' };
+    if (cpfCorrigido.length === 11 && !cpfEhValido(cpfCorrigido)) return { sucesso: false, codigo: 'CPF_INVALIDO', erro: 'O CPF informado possui 11 n\u00fameros, mas os d\u00edgitos verificadores n\u00e3o conferem. Confira o documento.' };
+
+    if (cpfAnterior.length !== 11) return { sucesso: false, codigo: 'CPF_ATUAL_INVALIDO', erro: 'Não foi possível identificar o CPF atual do prontuário.' };
+    if (!cpfEhValido(cpfCorrigido)) return { sucesso: false, codigo: 'CPF_INVALIDO', erro: 'Informe um CPF válido com 11 dígitos.' };
+    if (cpfAnterior === cpfCorrigido) return { sucesso: false, codigo: 'CPF_IGUAL', erro: 'O novo CPF é igual ao CPF atual.' };
+    if (justificativa.length < 5) return { sucesso: false, codigo: 'MOTIVO_OBRIGATORIO', erro: 'Informe o motivo da correção.' };
+
+    const db = conectarBanco();
+    const abaVitimas = db.getSheetByName('VÍTIMAS');
+    if (!abaVitimas) return { sucesso: false, erro: 'Aba de vítimas não encontrada.' };
+
+    const dados = abaVitimas.getDataRange().getValues();
+    if (dados.length <= 1) return { sucesso: false, erro: 'Nenhum prontuário cadastrado.' };
+    const cabecalho = dados[0];
+    const iId = cabecalho.indexOf('ID_Vitima');
+    const iCpf = cabecalho.indexOf('CPF');
+    if (iCpf < 0) return { sucesso: false, erro: 'A coluna CPF não foi encontrada na base.' };
+
+    let linhaAtual = -1;
+    let idVitima = '';
+    let linhaCpfDestino = -1;
+    for (let i = 1; i < dados.length; i++) {
+      const cpfLinha = String(dados[i][iCpf] || '').replace(/\D/g, '');
+      if (cpfLinha === cpfAnterior) {
+        linhaAtual = i + 1;
+        idVitima = iId >= 0 ? String(dados[i][iId] || '') : '';
+      }
+      if (cpfLinha === cpfCorrigido) linhaCpfDestino = i + 1;
+    }
+
+    if (linhaAtual < 0) return { sucesso: false, codigo: 'PRONTUARIO_NAO_ENCONTRADO', erro: 'Não foi encontrado um prontuário com o CPF informado.' };
+    if (linhaCpfDestino >= 0 && linhaCpfDestino !== linhaAtual) {
+      registrarAuditoria(sessao, 'CORRECAO_CPF', 'BLOQUEADA_CPF_JA_CADASTRADO', cpfAnterior + '|' + cpfCorrigido);
+      return {
+        sucesso: false,
+        codigo: 'CPF_DESTINO_JA_CADASTRADO',
+        erro: 'O CPF informado já pertence a outro prontuário. A correção foi bloqueada para evitar a mistura de históricos.',
+        mensagem: 'Solicite uma revisão administrativa para avaliar a unificação dos prontuários.'
+      };
+    }
+
+    abaVitimas.getRange(linhaAtual, iCpf + 1).setValue(formatarCpfComMascara(cpfCorrigido));
+    registrarAuditoria(sessao, 'CORRECAO_CPF', 'SUCESSO_MOTIVO_REGISTRADO: ' + justificativa.substring(0, 180), cpfAnterior + '|' + cpfCorrigido);
+    return {
+      sucesso: true,
+      idVitima: idVitima,
+      cpfAnterior: cpfAnterior,
+      cpfNovo: cpfCorrigido,
+      mensagem: 'CPF corrigido com sucesso. O histórico do prontuário foi preservado.'
+    };
+  } catch (erro) {
+    return { sucesso: false, erro: 'Não foi possível corrigir o CPF: ' + erro.message };
+  } finally {
+    bloqueio.releaseLock();
   }
 }

@@ -8,6 +8,8 @@
   window.heatLayerAmpliado = null;
   window.dashHeatData = [];
   window.dashDadosBrutos = [];
+  window.dashPerfis = null;
+  window.dashboardDadosCarregados = false;
 
   const coordsBairros = {
     'Centro': [-23.5365, -47.4381], 'Vila Nova': [-23.5385, -47.4350], 'Jardim Paulista': [-23.5410, -47.4420],
@@ -18,11 +20,6 @@
   };
 
   const nomeMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
-  function normalizar(texto) {
-    if (!texto) return '';
-    return String(texto).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  }
 
   function opcoesMapaCalor(mapa) {
     return {
@@ -55,8 +52,8 @@
       });
   }
 
-  function carregarDashboard() {
-    const niveisPainel = ['admin', 'diretoria', 'secretarios', 'secretario', 'secretário'];
+  function carregarDashboard(forcarAtualizacao) {
+    const niveisPainel = ['admin', 'gestor', 'observador', 'desenvolvimento'];
     const nivelUsuario = (window.usuarioAtual && window.usuarioAtual.nivelAcesso) ? String(window.usuarioAtual.nivelAcesso).trim().toLowerCase() : '';
     
     if (!niveisPainel.includes(nivelUsuario)) {
@@ -67,6 +64,15 @@
 
     const loadingUI = document.getElementById('dash-loading');
     const contentUI = document.getElementById('dash-content');
+
+    if (!forcarAtualizacao && window.dashboardDadosCarregados) {
+      loadingUI.classList.add('d-none');
+      contentUI.classList.remove('d-none');
+      preencherFiltroAno();
+      window.aplicarFiltrosDashboard();
+      return;
+    }
+
     loadingUI.classList.remove('d-none');
     contentUI.classList.add('d-none');
 
@@ -81,6 +87,8 @@
 
         contentUI.classList.remove('d-none');
         window.dashDadosBrutos = resposta.dadosBrutos || [];
+        window.dashPerfis = resposta.perfis || {};
+        window.dashboardDadosCarregados = true;
         preencherFiltroAno();
         window.aplicarFiltrosDashboard();
       })
@@ -95,6 +103,7 @@
       document.getElementById('filtro-ano').value = new Date().getFullYear();
       document.getElementById('filtro-data-inicio').value = '';
       document.getElementById('filtro-data-fim').value = '';
+      document.querySelectorAll('select[id$="-isolado"]').forEach(function(select) { select.value = ''; });
       window.aplicarFiltrosDashboard();
   };
 
