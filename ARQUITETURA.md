@@ -10,15 +10,6 @@
 
 Especificação arquitetural formal do **Sistema Integrado da Rede de Proteção (RPM - Votorantim)**, estruturada através dos 4 níveis do **Modelo C4** (*Context, Containers, Components, Code*).
 
-| Componente | Tecnologia | Papel no Sistema |
-| --- | --- | --- |
-| Interface | HTML5, CSS3 e JavaScript ES6+ | SPA servida via Apps Script HtmlService |
-| Backend | Google Apps Script (`backend.gs`) | Regras de negócio, segurança e roteamento RPC |
-| Base de dados | Google Sheets institucional | Armazenamento relacional estruturado em abas |
-| Arquivos e backups | Google Drive institucional | Snapshots diários e persistência em Drive Compartilhado |
-| Mensageria | Gmail / MailApp Service | Alertas transacionais de integridade e primeiro acesso |
-| Execução | Web App Google Apps Script | Aplicação serverless restrita ao domínio institucional |
-
 ---
 
 ## 1. Contexto do Sistema (System Context)

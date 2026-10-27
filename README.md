@@ -36,8 +36,6 @@ O projeto é uma aplicação Web do **Google Apps Script**.
 | E-mails | Gmail/Google Workspace via Apps Script |
 | Publicação | Web App do Google Apps Script |
 
-> 🏛️ **Especificação Arquitetural Detalhada:** A modelagem técnica completa em 4 níveis (Contexto, Contêineres, Componentes e Código/ERD) com diagramas interativos está documentada na **[Página 2: Arquitetura (Modelo C4)](ARQUITETURA.md)**.
-
 ## Estrutura do repositório
 
 | Arquivo | Finalidade |
