@@ -132,6 +132,15 @@
       .alterarMinhaSenha(nova, obterTokenSessao());
   }
 
+  function orientarPrimeiroAcesso() {
+    google.script.run.withSuccessHandler(function(resposta) {
+      if (resposta && resposta.url) { abrirVideoAjuda(resposta.url, 'Primeiro acesso e troca de senha'); return; }
+      Swal.fire({ title: 'Primeiro acesso', icon: 'info', confirmButtonText: 'Entendi', html: 'Use o e-mail e a <strong>senha temporária</strong> recebida. Após entrar, o sistema solicitará a criação de uma senha pessoal.<br><br>O vídeo deste passo a passo será aberto aqui assim que for publicado pela equipe responsável.' });
+    }).withFailureHandler(function() {
+      Swal.fire('Primeiro acesso', 'Use o e-mail e a senha temporária recebida. Após entrar, defina uma senha pessoal.', 'info');
+    }).obterTutorialPrimeiroAcesso();
+  }
+
   function fazerLogout() {
     const tokenSessao = sessionStorage.getItem('rpm_session');
     if (tokenSessao) google.script.run.encerrarSessao(tokenSessao);
@@ -239,6 +248,7 @@
           document.getElementById('btn-tab-usuarios').classList.remove('d-none');
           document.getElementById('btn-tab-setores').classList.remove('d-none');
           document.getElementById('btn-tab-formularios').classList.remove('d-none');
+          document.getElementById('btn-tab-videos').classList.remove('d-none');
         }
 
         if(appContainer) appContainer.classList.remove('d-none');
@@ -298,7 +308,7 @@
   function alternarAba(event, abaDestino) {
     if (event) event.preventDefault();
     if (abaDestino === 'atendimentos' && perfilObservadorAtual()) abaDestino = 'dashboard';
-    if (perfilControleSocialAtual() && abaDestino !== 'controle-social') abaDestino = 'controle-social';
+    if (perfilControleSocialAtual() && abaDestino !== 'controle-social' && abaDestino !== 'ajuda') abaDestino = 'controle-social';
     if (abaDestino === 'controle-social' && !podeAcessarAcompanhamentoAtual()) abaDestino = 'atendimentos';
     
     const abaAtend = document.getElementById('aba-atendimentos');
@@ -307,6 +317,8 @@
     const abaUsuarios = document.getElementById('usuarios-container');
     const abaSetores = document.getElementById('setores-container');
     const abaFormularios = document.getElementById('formularios-container');
+    const abaAjuda = document.getElementById('ajuda-container');
+    const abaVideos = document.getElementById('videos-container');
     
     const btnAtend = document.getElementById('btn-tab-atendimentos');
     const btnDash = document.getElementById('btn-tab-dashboard');
@@ -314,6 +326,8 @@
     const btnUsuarios = document.getElementById('btn-tab-usuarios');
     const btnSetores = document.getElementById('btn-tab-setores');
     const btnFormularios = document.getElementById('btn-tab-formularios');
+    const btnAjuda = document.getElementById('btn-tab-ajuda');
+    const btnVideos = document.getElementById('btn-tab-videos');
 
     // Reset geral de visibilidade
     if(abaAtend) { abaAtend.classList.add('d-none'); abaAtend.style.display = ''; }
@@ -322,6 +336,8 @@
     if(abaUsuarios) { abaUsuarios.classList.add('d-none'); abaUsuarios.style.display = ''; }
     if(abaSetores) { abaSetores.classList.add('d-none'); abaSetores.style.display = ''; }
     if(abaFormularios) { abaFormularios.classList.add('d-none'); abaFormularios.style.display = ''; }
+    if(abaAjuda) { abaAjuda.classList.add('d-none'); abaAjuda.style.display = ''; }
+    if(abaVideos) { abaVideos.classList.add('d-none'); abaVideos.style.display = ''; }
     
     if(btnAtend) btnAtend.classList.remove('active');
     if(btnDash) btnDash.classList.remove('active');
@@ -329,6 +345,8 @@
     if(btnUsuarios) btnUsuarios.classList.remove('active');
     if(btnSetores) btnSetores.classList.remove('active');
     if(btnFormularios) btnFormularios.classList.remove('active');
+    if(btnAjuda) btnAjuda.classList.remove('active');
+    if(btnVideos) btnVideos.classList.remove('active');
 
     if (abaDestino === 'atendimentos') {
       if(abaAtend) abaAtend.classList.remove('d-none');
@@ -353,6 +371,14 @@
       if(abaFormularios) { abaFormularios.classList.remove('d-none'); abaFormularios.style.display = 'block'; }
       if(btnFormularios) btnFormularios.classList.add('active');
       carregarConfigFormularios();
+    } else if (abaDestino === 'ajuda') {
+      if(abaAjuda) { abaAjuda.classList.remove('d-none'); abaAjuda.style.display = 'block'; }
+      if(btnAjuda) btnAjuda.classList.add('active');
+      carregarCentralAjuda();
+    } else if (abaDestino === 'videos') {
+      if(abaVideos) { abaVideos.classList.remove('d-none'); abaVideos.style.display = 'block'; }
+      if(btnVideos) btnVideos.classList.add('active');
+      carregarGestaoVideos();
     }
   }
 

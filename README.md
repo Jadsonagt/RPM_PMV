@@ -82,9 +82,44 @@ A produção deve ser operada por uma conta técnica institucional. Os valores d
 O Web App deve ser publicado com estas opções:
 
 - **Executar como:** usuário que fez a implantação;
-- **Quem tem acesso:** somente usuários do domínio da Prefeitura.
+- **Quem tem acesso:** qualquer pessoa, inclusive sem uma Conta do Google conectada. O acesso efetivo ao sistema continua limitado aos e-mails cadastrados na aba `USUARIOS`, com senha e perfil de acesso.
 
 O roteiro completo está em [MIGRACAO_GOOGLE_WORKSPACE.md](MIGRACAO_GOOGLE_WORKSPACE.md).
+
+### Primeira implantação: começando com uma planilha nova
+
+Siga esta ordem. Ela evita criar um projeto no local errado ou liberar uma base antes das permissões estarem corretas.
+
+1. **Dê um nome à planilha.** Sugestão: `RPM — Base de Dados — Produção`. Evite colocar nomes de pessoas, vítimas ou números de documentos no título do arquivo.
+2. **Mova a planilha para um Drive Compartilhado institucional** (por exemplo, `Rede de Proteção — Produção`). Não a mantenha no Meu Drive de uma conta pessoal.
+3. **Restrinja os compartilhamentos:** inicialmente, apenas a conta técnica do sistema e os administradores formalmente designados devem ter acesso. Desative qualquer opção de acesso por link.
+4. **Copie o ID da planilha**, que fica na URL entre `/d/` e `/edit`. Esse é o valor de `RPM_DB_ID`; guarde-o somente nas Propriedades do script, nunca no código ou no GitHub.
+5. **Não crie abas e colunas manualmente sem um modelo aprovado.** A aplicação depende de uma estrutura precisa, incluindo `USUARIOS`, `ATENDIMENTOS`, `VÍTIMAS`, `SETORES`, `FORMULARIOS_CONFIG` e `AUDITORIA`.
+6. **Não coloque dados reais ainda.** Primeiro publique e valide com contas e registros de teste. A migração de dados antigos deve ser planejada, revisada e feita apenas após autorização da gestão e da LGPD.
+
+> Abrir **Extensões > Apps Script** cria um projeto vinculado à planilha. Isso não é um erro, mas, para este projeto, recomenda-se usar um projeto Apps Script institucional separado, associado à conta técnica e versionado por `clasp`. Assim, código, permissões e base de dados ficam administrados de forma independente.
+
+### Enviar o código ao Apps Script sem copiar e colar
+
+Na pasta deste repositório, com a conta institucional autenticada, execute:
+
+```bash
+npx clasp login
+npx clasp create --type webapp --title "Sistema Integrado da Rede de Proteção"
+npx clasp push
+```
+
+O segundo comando cria um projeto Apps Script novo e atualiza o identificador local do projeto. Não use o identificador do projeto antigo de desenvolvimento. Depois do envio:
+
+1. abra o novo projeto Apps Script criado;
+2. adicione as Propriedades do script da tabela acima, começando por `RPM_DB_ID`;
+3. conclua a estrutura inicial da base usando o modelo de dados aprovado pela equipe do sistema;
+4. execute e autorize `autorizarDrive()` e `autorizarEnvioEmail()`;
+5. crie uma implantação de teste antes da produção.
+
+### Opção recomendada para a base de dados
+
+Se já existir uma base anterior funcional, a opção mais segura é **copiar a planilha inteira para o Drive Compartilhado institucional**, preservando abas, cabeçalhos e fórmulas, e depois revisar as permissões. Uma planilha totalmente vazia exige a criação controlada da estrutura de dados e do primeiro usuário administrador antes de o login funcionar.
 
 ## Desenvolvimento e publicação
 

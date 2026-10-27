@@ -1,0 +1,35 @@
+<div id="videos-container" class="container mt-4 mb-5 d-none">
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+    <div>
+      <h3 class="mb-1"><i class="bi bi-camera-video me-2"></i>Gestão de Vídeos — RP</h3>
+      <p class="text-muted mb-0">Publique tutoriais e defina quem poderá visualizá-los.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-primary" type="button" onclick="abrirPastaVideosAjuda()"><i class="bi bi-folder2-open me-1"></i>Pasta de vídeos</button>
+      <button class="btn btn-primary" type="button" onclick="abrirModalVideoAjuda()"><i class="bi bi-plus-lg me-1"></i>Novo vídeo</button>
+    </div>
+  </div>
+  <div class="alert alert-info border-0 shadow-sm"><i class="bi bi-info-circle me-2"></i>Envie o arquivo pela Pasta de vídeos no Drive e cadastre o link aqui. Não use dados reais de vítimas nos tutoriais.</div>
+  <div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Vídeo</th><th>Público</th><th>Status</th><th>Posição</th><th class="text-end">Ações</th></tr></thead>
+    <tbody id="tabela-videos-body"><tr><td colspan="5" class="text-center py-4 text-muted">Carregando vídeos...</td></tr></tbody>
+  </table></div></div>
+</div>
+
+<div class="modal fade" id="modalVideoAjuda" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="bi bi-camera-video me-2"></i>Vídeo de ajuda</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><form id="form-video-ajuda">
+    <input type="hidden" id="video-ajuda-id">
+    <div class="row g-3">
+      <div class="col-md-7"><label class="form-label" for="video-ajuda-titulo">Título</label><input class="form-control" id="video-ajuda-titulo" required></div>
+      <div class="col-md-5"><label class="form-label" for="video-ajuda-categoria">Categoria</label><input class="form-control" id="video-ajuda-categoria" placeholder="Ex.: Atendimentos"></div>
+      <div class="col-12"><label class="form-label" for="video-ajuda-descricao">Descrição</label><textarea class="form-control" id="video-ajuda-descricao" rows="2"></textarea></div>
+      <div class="col-12"><label class="form-label" for="video-ajuda-url">Link do vídeo</label><input class="form-control" id="video-ajuda-url" type="url" placeholder="https://..."><div class="form-text">Use link do Drive institucional ou outra plataforma aprovada.</div></div>
+      <div class="col-md-6"><label class="form-label d-block">Perfis permitidos</label><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="video-ajuda-todos-perfis" checked onchange="alternarPublicoVideo('perfis')"><label class="form-check-label" for="video-ajuda-todos-perfis">Todos os perfis</label></div><div id="video-ajuda-lista-perfis" class="border rounded p-2 bg-light small"></div><div class="form-text">Marque apenas os perfis que devem receber este vídeo.</div></div>
+      <div class="col-md-6"><label class="form-label d-block">Setores permitidos</label><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="video-ajuda-todos-setores" checked onchange="alternarPublicoVideo('setores')"><label class="form-check-label" for="video-ajuda-todos-setores">Todos os setores</label></div><div id="video-ajuda-lista-setores" class="border rounded p-2 bg-light small"></div><div class="form-text">A lista acompanha os setores cadastrados no sistema.</div></div>
+      <div class="col-md-6"><label class="form-label">Publicação</label><div class="form-control bg-light text-muted">Automática conforme o link do vídeo</div><div class="form-text">Com link, o vídeo é publicado. Sem link, fica em preparação.</div></div>
+      <div class="col-md-6"><label class="form-label" for="video-ajuda-posicao">Posição na lista de ajuda</label><select class="form-select" id="video-ajuda-posicao"></select><div class="form-text">A sequência dos demais vídeos será ajustada automaticamente.</div></div>
+    </div>
+  </form></div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-primary" onclick="salvarVideoAjudaFrontend()"><i class="bi bi-save me-1"></i>Salvar vídeo</button></div>
+</div></div></div>

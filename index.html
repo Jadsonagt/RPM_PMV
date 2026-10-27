@@ -37,8 +37,8 @@
         <div class="card-body p-5">
           <div class="text-center mb-4">
             <img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" alt="Brasão Votorantim" style="height: 60px; object-fit: contain;">
-            <h4 class="mt-3" style="color: var(--azul-institucional);">Rede de Proteção</h4>
-            <p class="text-muted small">Acesso Restrito</p>
+            <h4 class="mt-3" style="color: var(--azul-institucional);">RP Votorantim</h4>
+            <p class="text-muted small">Plataforma da Rede de Proteção</p>
           </div>
           
           <form id="formLogin" onsubmit="event.preventDefault(); efetuarLogin();">
@@ -56,6 +56,9 @@
           </form>
           <div class="text-center mt-3">
             <button type="button" class="btn btn-link btn-sm text-decoration-none" onclick="abrirRecuperacaoSenha()">Esqueci minha senha</button>
+          </div>
+          <div class="text-center mt-1">
+            <button type="button" class="btn btn-link btn-sm text-decoration-none" onclick="orientarPrimeiroAcesso()">Primeiro acesso? Clique aqui</button>
           </div>
           
           <div class="text-center mt-3 d-none" id="login-error">
@@ -103,7 +106,7 @@
         <div class="container-fluid">
           <a class="navbar-brand d-flex align-items-center" style="cursor: pointer;" onclick="alternarAba(event, 'atendimentos')">
             <img src="https://helpdesk.sistemas.votorantim.sp.gov.br/assets/Votorantim_Brasao-BNNOgGOF.webp" alt="Brasão Votorantim" style="height: 40px; width: auto; object-fit: contain; margin-right: 10px;">
-            <span class="brand-text">RPM Votorantim</span>
+            <span class="brand-text">RP Votorantim</span>
           </a>
           
           <!-- Botões de Navegação (Tabs) -->
@@ -130,6 +133,12 @@
               </li>
               <li class="nav-item">
                 <a class="nav-link nav-item-custom d-none" id="btn-tab-formularios" style="cursor: pointer;" onclick="alternarAba(event, 'formularios')">Config. Formulários</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom" id="btn-tab-ajuda" style="cursor: pointer;" onclick="alternarAba(event, 'ajuda')">Ajuda</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link nav-item-custom d-none" id="btn-tab-videos" style="cursor: pointer;" onclick="alternarAba(event, 'videos')">Gestão de Vídeos</a>
               </li>
             </ul>
           </div>
@@ -233,6 +242,8 @@
 
       <!-- ABA 4: GESTÃO DE USUÁRIOS (Oculto por padrão) -->
       <?!= include('admin-usuarios'); ?>
+      <?!= include('ajuda'); ?>
+      <?!= include('gestao-videos'); ?>
     </div> <!-- Fim App Container -->
     
     <!-- MODAL NOVO ATENDIMENTO -->
@@ -622,5 +633,7 @@
     <?!= include('controle-social-scripts'); ?>
     <?!= include('relatorio-scripts'); ?>
     <?!= include('admin-usuarios-scripts'); ?>
+    <?!= include('ajuda-scripts'); ?>
+    <?!= include('gestao-videos-scripts'); ?>
   </body>
 </html>

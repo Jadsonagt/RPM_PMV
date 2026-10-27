@@ -34,6 +34,336 @@ function obterConfiguracaoProducao() {
   return configuracao;
 }
 
+const CABECALHOS_AJUDA_VIDEOS = [
+  'ID', 'Módulo', 'Categoria', 'Título', 'Descrição',
+  'Perfis permitidos', 'Setores permitidos', 'URL do vídeo', 'Status', 'Ordem'
+];
+
+const VIDEOS_AJUDA_INICIAIS_RPM = [
+  ['rpm-primeiro-acesso', 'RPM', 'Primeiro acesso', 'Primeiro acesso e troca de senha', 'Como entrar na plataforma e definir uma senha pessoal.', 'TODOS', 'TODOS', '', 'EM_PREPARACAO', 10],
+  ['rpm-navegacao', 'RPM', 'Visão geral', 'Navegação na Rede de Proteção à Mulher', 'Conheça as áreas do RPM e as responsabilidades de uso.', 'TODOS', 'TODOS', '', 'EM_PREPARACAO', 20],
+  ['rpm-prontuario', 'RPM', 'Prontuários', 'Consulta e atualização de prontuário', 'Como localizar, consultar e atualizar informações de forma responsável.', 'TODOS', 'TODOS', '', 'EM_PREPARACAO', 30],
+  ['rpm-atendimento', 'RPM', 'Atendimentos', 'Registro de acolhimento e atendimento', 'Como registrar atendimentos, encaminhamentos e evoluções.', 'TODOS', 'TODOS', '', 'EM_PREPARACAO', 40],
+  ['rpm-painel', 'RPM', 'Painel gerencial', 'Painel, filtros e relatórios', 'Leitura de indicadores e geração de relatórios do RPM.', 'ADMIN,TI,GESTOR,OBSERVADOR,DESENVOLVIMENTO', 'TODOS', '', 'EM_PREPARACAO', 50],
+  ['rpm-controle-social', 'RPM', 'Controle social', 'Acompanhamento e controle social', 'Uso do acompanhamento conforme as permissões do perfil.', 'ADMIN,GESTOR,OBSERVADOR/CONTROLE SOCIAL,DESENVOLVIMENTO', 'TODOS', '', 'EM_PREPARACAO', 60],
+  ['rpm-administracao', 'RPM', 'Administração', 'Gestão de usuários, setores e formulários', 'Administração institucional do sistema e cuidados de segurança.', 'ADMIN,TI,DESENVOLVIMENTO', 'TODOS', '', 'EM_PREPARACAO', 70]
+];
+
+function inicializarAbaAjudaVideos() {
+  const db = conectarBanco();
+  let aba = db.getSheetByName('AJUDA_VIDEOS');
+  if (!aba) aba = db.insertSheet('AJUDA_VIDEOS');
+  if (aba.getLastRow() === 0) {
+    aba.getRange(1, 1, 1, CABECALHOS_AJUDA_VIDEOS.length).setValues([CABECALHOS_AJUDA_VIDEOS]);
+    aba.getRange(2, 1, VIDEOS_AJUDA_INICIAIS_RPM.length, CABECALHOS_AJUDA_VIDEOS.length).setValues(VIDEOS_AJUDA_INICIAIS_RPM);
+    aba.setFrozenRows(1);
+  }
+  return aba;
+}
+
+// O mesmo vídeo publicado na Central de Ajuda é usado antes do login e no e-mail
+// de credenciais. Isso evita links diferentes para uma mesma orientação.
+function obterLinkVideoPrimeiroAcesso_() {
+  try {
+    const aba = inicializarAbaAjudaVideos();
+    const dados = aba.getDataRange().getValues();
+    if (dados.length < 2) return '';
+    const cabecalho = dados[0];
+    const indiceId = cabecalho.indexOf('ID');
+    const indiceUrl = cabecalho.indexOf('URL do vídeo');
+    const indiceStatus = cabecalho.indexOf('Status');
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][indiceId] || '').trim() !== 'rpm-primeiro-acesso') continue;
+      const url = String(dados[i][indiceUrl] || '').trim();
+      const status = String(dados[i][indiceStatus] || '').trim().toUpperCase();
+      return status !== 'INATIVO' && /^https:\/\//i.test(url) ? url : '';
+    }
+  } catch (erro) {
+    console.warn('Não foi possível obter o vídeo de primeiro acesso: ' + erro.message);
+  }
+  return '';
+}
+
+// Consulta pública limitada ao link do tutorial de primeiro acesso. Não expõe
+// usuários, dados da rede ou outros vídeos antes da autenticação.
+function obterTutorialPrimeiroAcesso() {
+  return { url: obterLinkVideoPrimeiroAcesso_() };
+}
+
+function listaAjudaPermite_(valor, referencia) {
+  const itens = String(valor || 'TODOS').split(',').map(function(item) {
+    return item.trim().toUpperCase();
+  }).filter(Boolean);
+  return !itens.length || itens.indexOf('TODOS') > -1 || itens.indexOf(String(referencia || '').trim().toUpperCase()) > -1;
+}
+
+function obterVideosAjuda(tokenSessao) {
+  try {
+    const sessao = obterSessaoValida(tokenSessao);
+    if (!sessao) return { sucesso: false, erro: 'Sessão inválida ou expirada.', videos: [] };
+
+    const aba = inicializarAbaAjudaVideos();
+    const dados = aba.getDataRange().getValues();
+    const cabecalho = dados[0];
+    const indice = function(nome) { return cabecalho.indexOf(nome); };
+    const perfil = nivelSessaoNormalizado(sessao).toUpperCase();
+    const setor = String(sessao.setor || '').trim().toUpperCase();
+    const perfilAdministrativo = ['ADMIN', 'TI', 'DESENVOLVIMENTO'].indexOf(perfil) > -1;
+
+    const videos = dados.slice(1).map(function(linha) {
+      return {
+        id: String(linha[indice('ID')] || '').trim(),
+        modulo: String(linha[indice('Módulo')] || '').trim(),
+        categoria: String(linha[indice('Categoria')] || '').trim(),
+        titulo: String(linha[indice('Título')] || '').trim(),
+        descricao: String(linha[indice('Descrição')] || '').trim(),
+        perfis: String(linha[indice('Perfis permitidos')] || 'TODOS').trim(),
+        setores: String(linha[indice('Setores permitidos')] || 'TODOS').trim(),
+        url: String(linha[indice('URL do vídeo')] || '').trim(),
+        status: String(linha[indice('Status')] || 'EM_PREPARACAO').trim().toUpperCase(),
+        ordem: Number(linha[indice('Ordem')]) || 999
+      };
+    }).map(function(video) {
+      if (video.status !== 'INATIVO') video.status = video.url ? 'PUBLICADO' : 'EM_PREPARACAO';
+      return video;
+    }).filter(function(video) {
+      if (!video.id || video.status === 'INATIVO') return false;
+      // Administradores atuam transversalmente na plataforma RP e, por isso,
+      // visualizam materiais de todos os módulos presentes e futuros.
+      if (perfilAdministrativo) return true;
+      if (video.modulo.toUpperCase() !== 'RPM') return false;
+      return listaAjudaPermite_(video.perfis, perfil) && listaAjudaPermite_(video.setores, setor);
+    }).sort(function(a, b) { return a.ordem - b.ordem; });
+
+    return { sucesso: true, videos: videos };
+  } catch (erro) {
+    return { sucesso: false, erro: 'Não foi possível carregar a Central de Ajuda: ' + erro.message, videos: [] };
+  }
+}
+
+function podeGerenciarVideosAjuda_(sessao) {
+  return ['admin', 'ti', 'desenvolvimento'].indexOf(nivelSessaoNormalizado(sessao)) > -1;
+}
+
+function mapearVideoAjuda_(linha, cabecalho) {
+  const indice = function(nome) { return cabecalho.indexOf(nome); };
+  const url = String(linha[indice('URL do vídeo')] || '').trim();
+  const statusArmazenado = String(linha[indice('Status')] || '').trim().toUpperCase();
+  return {
+    id: String(linha[indice('ID')] || '').trim(),
+    modulo: String(linha[indice('Módulo')] || '').trim(),
+    categoria: String(linha[indice('Categoria')] || '').trim(),
+    titulo: String(linha[indice('Título')] || '').trim(),
+    descricao: String(linha[indice('Descrição')] || '').trim(),
+    perfis: String(linha[indice('Perfis permitidos')] || 'TODOS').trim(),
+    setores: String(linha[indice('Setores permitidos')] || 'TODOS').trim(),
+    url: url,
+    status: statusArmazenado === 'INATIVO' ? 'INATIVO' : (url ? 'PUBLICADO' : 'EM_PREPARACAO'),
+    ordem: Number(linha[indice('Ordem')]) || 999
+  };
+}
+
+function listarVideosAjudaParaGestao(tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || !podeGerenciarVideosAjuda_(sessao)) return { sucesso: false, erro: 'Acesso negado.', videos: [] };
+  const aba = inicializarAbaAjudaVideos();
+  const dados = aba.getDataRange().getValues();
+  const videos = dados.slice(1).map(function(linha) {
+    return mapearVideoAjuda_(linha, dados[0]);
+  }).filter(function(video) { return video.id; }).sort(function(a, b) { return a.ordem - b.ordem; });
+  return { sucesso: true, videos: videos, opcoes: opcoesGestaoVideos_() };
+}
+
+function opcoesGestaoVideos_() {
+  const perfis = ['Usuario', 'Gestor', 'Observador/Controle Social', 'Observador', 'Desenvolvimento', 'Admin', 'TI'];
+  const setores = listarSetoresBase().filter(function(item) {
+    return String(item.status || 'Ativo').toLowerCase() !== 'inativo';
+  }).map(function(item) { return item.setor; }).sort();
+  return { perfis: perfis, setores: setores };
+}
+
+function salvarVideoAjuda(dadosVideo, tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || !podeGerenciarVideosAjuda_(sessao)) return { sucesso: false, erro: 'Acesso negado.' };
+  const titulo = String(dadosVideo && dadosVideo.titulo || '').trim();
+  const url = String(dadosVideo && dadosVideo.url || '').trim();
+  const status = url ? 'PUBLICADO' : 'EM_PREPARACAO';
+  if (!titulo) return { sucesso: false, erro: 'Informe o título do vídeo.' };
+  if (['EM_PREPARACAO', 'PUBLICADO', 'INATIVO'].indexOf(status) === -1) return { sucesso: false, erro: 'Status inválido.' };
+  if (url && !/^https:\/\//i.test(url)) return { sucesso: false, erro: 'Use uma URL segura iniciada em https://.' };
+  if (status === 'PUBLICADO' && !url) return { sucesso: false, erro: 'Informe a URL antes de publicar o vídeo.' };
+
+  const aba = inicializarAbaAjudaVideos();
+  const dados = aba.getDataRange().getValues();
+  const cabecalho = dados[0];
+  const idInformado = String(dadosVideo.id || '').trim();
+  const id = idInformado || 'rpm-' + Utilities.getUuid();
+  const linha = [
+    id,
+    'RPM',
+    String(dadosVideo.categoria || 'Geral').trim(),
+    titulo,
+    String(dadosVideo.descricao || '').trim(),
+    String(dadosVideo.perfis || 'TODOS').trim() || 'TODOS',
+    String(dadosVideo.setores || 'TODOS').trim() || 'TODOS',
+    url,
+    status,
+    999
+  ];
+  const indiceId = cabecalho.indexOf('ID');
+  const registros = dados.slice(1).filter(function(registro) { return String(registro[indiceId] || '').trim() && String(registro[indiceId] || '').trim() !== id; });
+  const existente = dados.slice(1).some(function(registro) { return String(registro[indiceId] || '').trim() === id; });
+  registros.sort(function(a, b) { return (Number(a[cabecalho.indexOf('Ordem')]) || 999) - (Number(b[cabecalho.indexOf('Ordem')]) || 999); });
+  const posicao = String(dadosVideo.posicao || 'FINAL');
+  let indiceInsercao = registros.length;
+  if (posicao === 'INICIO') indiceInsercao = 0;
+  else if (posicao.indexOf('APOS:') === 0) {
+    const referencia = posicao.substring(5);
+    const indiceReferencia = registros.findIndex(function(registro) { return String(registro[indiceId] || '').trim() === referencia; });
+    if (indiceReferencia > -1) indiceInsercao = indiceReferencia + 1;
+  }
+  registros.splice(indiceInsercao, 0, linha);
+  const indiceOrdem = cabecalho.indexOf('Ordem');
+  registros.forEach(function(registro, indice) { registro[indiceOrdem] = (indice + 1) * 10; });
+  if (aba.getLastRow() > 1) aba.getRange(2, 1, aba.getLastRow() - 1, cabecalho.length).clearContent();
+  aba.getRange(2, 1, registros.length, cabecalho.length).setValues(registros);
+  registrarAuditoria(sessao, existente ? 'EDICAO_VIDEO_AJUDA' : 'CRIACAO_VIDEO_AJUDA', status, id);
+  return { sucesso: true, id: id };
+}
+
+function alterarAtivacaoVideoAjuda(idVideo, inativar, tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || !podeGerenciarVideosAjuda_(sessao)) return { sucesso: false, erro: 'Acesso negado.' };
+  const aba = inicializarAbaAjudaVideos();
+  const dados = aba.getDataRange().getValues();
+  const cabecalho = dados[0];
+  const indiceId = cabecalho.indexOf('ID');
+  const indiceUrl = cabecalho.indexOf('URL do vídeo');
+  const indiceStatus = cabecalho.indexOf('Status');
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][indiceId] || '').trim() !== String(idVideo || '').trim()) continue;
+    const novoStatus = inativar ? 'INATIVO' : (String(dados[i][indiceUrl] || '').trim() ? 'PUBLICADO' : 'EM_PREPARACAO');
+    aba.getRange(i + 1, indiceStatus + 1).setValue(novoStatus);
+    registrarAuditoria(sessao, inativar ? 'INATIVACAO_VIDEO_AJUDA' : 'REATIVACAO_VIDEO_AJUDA', novoStatus, idVideo);
+    return { sucesso: true, status: novoStatus };
+  }
+  return { sucesso: false, erro: 'Vídeo não encontrado.' };
+}
+
+function obterPastaVideosAjuda(tokenSessao) {
+  const sessao = obterSessaoValida(tokenSessao);
+  if (!sessao || !podeGerenciarVideosAjuda_(sessao)) return { sucesso: false, erro: 'Acesso negado.' };
+  const pastaId = String(PropertiesService.getScriptProperties().getProperty('RPM_PASTA_VIDEOS_ID') || '').trim();
+  if (!pastaId) return { sucesso: true, configurada: false };
+  try {
+    const pasta = DriveApp.getFolderById(pastaId);
+    return { sucesso: true, configurada: true, url: pasta.getUrl(), nome: pasta.getName() };
+  } catch (erro) {
+    return { sucesso: false, erro: 'A pasta de vídeos configurada não está acessível.' };
+  }
+}
+
+/**
+ * Inicializa uma base institucional vazia sem alterar abas que já contenham
+ * dados. Execute somente uma vez, pelo editor Apps Script e com a conta
+ * definida em RPM_EMAIL_SUPER_USUARIO.
+ */
+function inicializarBaseProducaoVazia() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) {
+    throw new Error('Somente o super usuário institucional pode inicializar a base.');
+  }
+
+  const bloqueio = LockService.getScriptLock();
+  if (!bloqueio.tryLock(30000)) throw new Error('Já existe uma inicialização em andamento.');
+
+  try {
+    const configuracao = obterConfiguracaoProducao();
+    const db = conectarBanco();
+    const garantirAba = function(nome, cabecalhos) {
+      let aba = db.getSheetByName(nome);
+      if (!aba) aba = db.insertSheet(nome);
+      if (aba.getLastRow() === 0) aba.appendRow(cabecalhos);
+      return aba;
+    };
+
+    const abaUsuarios = garantirAba('USUARIOS', [
+      'Email', 'Nome', 'Setor/Órgão', 'Nível de Acesso', 'Senha', 'Troca de Senha Obrigatória'
+    ]);
+    const abaAtendimentos = garantirAba('ATENDIMENTOS', [
+      'ID_Atendimento', 'ID_Vitima', 'Data do Atendimento', 'Órgão de Origem', 'CPF',
+      'n_bopm', 'visita_solidaria_pm', 'n_bopc', 'medida_protetiva', 'n_bo_gcm',
+      'botao_do_panico', 'grupo_de_acolhimento', 'encaminhado_casa_da_mulher',
+      'avaliacao_psiquiatrica', 'atendimento_familiar', 'encaminhado_creas', 'acao_status'
+    ]);
+    garantirAba('VÍTIMAS', [
+      'ID_Vitima', 'Data de Cadastro', 'Nome', 'Nome Social', 'Preferência de Exibição',
+      'CPF', 'RG', 'Data de Nascimento', 'Idade', 'Raça/Cor', 'Telefone Fixo',
+      'Celular / WhatsApp', 'CEP', 'Logradouro', 'Número', 'Bairro', 'Escolaridade',
+      'Renda Familiar', 'Possui Benefício Social', 'Bolsa Família', 'BPC',
+      'Aluguel Social Municipal', 'Aluguel Social Estadual', 'Outro Benefício Social',
+      'Descrição de Outro Benefício Social', 'Moradia'
+    ]);
+    garantirAba('COMPOSICAO_FAMILIAR', [
+      'ID_Composição', 'ID_Vitima', 'CPF Responsável', 'Nome Filho', 'Idade Filho',
+      'Escola', 'Data de Cadastro', 'Registrado Por', 'Setor de Origem'
+    ]);
+    garantirAba('AUDITORIA', [
+      'Data/Hora', 'E-mail', 'Nome', 'Setor', 'Perfil', 'Ação', 'Resultado', 'Identificador protegido'
+    ]);
+
+    inicializarAbaSetores();
+    inicializarAbaFormulariosConfig();
+    inicializarEstruturaModularRPM();
+
+    const usuarios = abaUsuarios.getDataRange().getValues();
+    const existeSuperUsuario = usuarios.slice(1).some(function(linha) {
+      return String(linha[0] || '').trim().toLowerCase() === configuracao.emailSuperUsuario;
+    });
+    let senhaTemporaria = '';
+    let avisoEnviado = false;
+    if (!existeSuperUsuario) {
+      senhaTemporaria = gerarSenhaTemporaria();
+      abaUsuarios.appendRow([
+        configuracao.emailSuperUsuario,
+        'Administrador institucional',
+        'TI',
+        'Admin',
+        criarCredencialSenha(senhaTemporaria),
+        'SIM'
+      ]);
+      try {
+        enviarAvisoAcesso(configuracao.emailSuperUsuario, 'Administrador institucional', 'criada', senhaTemporaria);
+        avisoEnviado = true;
+      } catch (erroEmail) {
+        console.error('A estrutura foi criada, mas o e-mail da senha temporária falhou: ' + erroEmail.message);
+      }
+    }
+
+    abaAtendimentos.setFrozenRows(1);
+    abaUsuarios.setFrozenRows(1);
+    registrarAuditoria({
+      email: configuracao.emailSuperUsuario,
+      nome: 'Inicialização institucional',
+      setor: 'TI',
+      nivelAcesso: 'Admin'
+    }, 'INICIALIZACAO_BASE_PRODUCAO', existeSuperUsuario ? 'ESTRUTURA_CONFERIDA' : 'ESTRUTURA_CRIADA', '');
+
+    return {
+      sucesso: true,
+      mensagem: existeSuperUsuario
+        ? 'Estrutura conferida. O super usuário já estava cadastrado.'
+        : avisoEnviado
+          ? 'Estrutura criada e senha temporária enviada ao super usuário.'
+          : 'Estrutura criada. Guarde a senha temporária retornada e verifique a autorização de e-mail.',
+      senhaTemporaria: senhaTemporaria || undefined,
+      avisoEnviado: avisoEnviado
+    };
+  } finally {
+    bloqueio.releaseLock();
+  }
+}
+
 // Catálogo inicial de linhas de proteção. O RPM permanece ativo; os demais
 // módulos ficam preparados para ativação após a definição dos fluxos pelo GDTI.
 const CATALOGO_MODULOS_PROTECAO_RPM = [
@@ -124,7 +454,7 @@ function criarBackupManualRPM(tokenSessao) {
     const arquivoBanco = DriveApp.getFileById(configuracao.dbId);
     const pastaDestino = DriveApp.getFolderById(configuracao.pastaBackupId);
     const copia = arquivoBanco.makeCopy(nomeArquivo, pastaDestino);
-    copia.setDescription('Cópia de segurança do RPM Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
+    copia.setDescription('Cópia de segurança do RP Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
 
     const dataFormatada = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
     const resultadoEmail = enviarConfirmacaoBackupRPM(nomeArquivo, dataFormatada, copia.getUrl());
@@ -171,7 +501,7 @@ function criarBackupAutomaticoRPM() {
     const arquivoBanco = DriveApp.getFileById(configuracao.dbId);
     const pastaDestino = DriveApp.getFolderById(configuracao.pastaBackupId);
     const copia = arquivoBanco.makeCopy(nomeArquivo, pastaDestino);
-    copia.setDescription('Copia automatica de seguranca do RPM Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
+    copia.setDescription('Copia automatica de seguranca do RP Votorantim criada em ' + Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') + '.');
 
     const dataFormatada = Utilities.formatDate(agora, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
     const resultadoEmail = enviarConfirmacaoBackupRPM(nomeArquivo, dataFormatada, copia.getUrl());
@@ -305,14 +635,76 @@ function sessaoExigeTrocaSenha(sessao) {
   return String(sessao && sessao.trocaSenhaObrigatoria || '').toUpperCase() === 'SIM';
 }
 
+function normalizarTituloColuna_(valor) {
+  return String(valor || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function obterIndiceColunaUsuario(aba, titulo) {
   const cabecalhos = aba.getRange(1, 1, 1, Math.max(aba.getLastColumn(), 1)).getValues()[0];
-  let indice = cabecalhos.indexOf(titulo);
+  const tituloNormalizado = normalizarTituloColuna_(titulo);
+  let indice = cabecalhos.findIndex(function(cabecalho) {
+    return normalizarTituloColuna_(cabecalho) === tituloNormalizado;
+  });
   if (indice === -1) {
     indice = cabecalhos.length;
     aba.getRange(1, indice + 1).setValue(titulo);
   }
   return indice;
+}
+
+function obterEstadoTrocaSenha_(linha, cabecalhos) {
+  const tituloNormalizado = normalizarTituloColuna_('Troca de Senha Obrigatoria');
+  const valores = cabecalhos.map(function(cabecalho, indice) {
+    return normalizarTituloColuna_(cabecalho) === tituloNormalizado
+      ? String(linha[indice] || '').trim().toUpperCase()
+      : '';
+  }).filter(Boolean);
+  // Em caso de coluna duplicada criada por versões anteriores, "NAO" prevalece
+  // para não obrigar novamente quem já concluiu a troca de senha.
+  if (valores.indexOf('NAO') > -1) return 'NAO';
+  if (valores.indexOf('SIM') > -1) return 'SIM';
+  return '';
+}
+
+/**
+ * Repara bases criadas por versões que gravaram o status de troca de senha em
+ * uma coluna duplicada (com ou sem acento). Não altera senhas ou perfis.
+ */
+function repararStatusTrocaSenhaUsuarios() {
+  const emailExecutor = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!ehSuperUsuario(emailExecutor)) {
+    throw new Error('Somente o super usuário institucional pode reparar a base de usuários.');
+  }
+
+  const aba = conectarBanco().getSheetByName('USUARIOS');
+  if (!aba || aba.getLastRow() < 2) return { sucesso: true, usuariosCorrigidos: 0 };
+
+  const dados = aba.getDataRange().getValues();
+  const cabecalhos = dados[0];
+  const tituloNormalizado = normalizarTituloColuna_('Troca de Senha Obrigatoria');
+  const indices = cabecalhos.map(function(cabecalho, indice) {
+    return normalizarTituloColuna_(cabecalho) === tituloNormalizado ? indice : -1;
+  }).filter(function(indice) { return indice >= 0; });
+  if (!indices.length) return { sucesso: true, usuariosCorrigidos: 0 };
+
+  const indicePrincipal = indices[0];
+  let usuariosCorrigidos = 0;
+  for (let i = 1; i < dados.length; i++) {
+    const estado = obterEstadoTrocaSenha_(dados[i], cabecalhos);
+    if (estado && String(dados[i][indicePrincipal] || '').trim().toUpperCase() !== estado) {
+      aba.getRange(i + 1, indicePrincipal + 1).setValue(estado);
+      usuariosCorrigidos += 1;
+    }
+  }
+
+  registrarAuditoria({
+    email: emailExecutor,
+    nome: 'Reparo de base',
+    setor: 'TI',
+    nivelAcesso: 'Admin'
+  }, 'REPARO_STATUS_TROCA_SENHA', 'USUARIOS_CORRIGIDOS_' + usuariosCorrigidos, '');
+  return { sucesso: true, usuariosCorrigidos: usuariosCorrigidos };
 }
 
 function gerarSenhaTemporaria() {
@@ -342,10 +734,17 @@ function enviarAvisoAcesso(email, nome, assunto, senhaTemporaria) {
   const nomeSeguro = escaparHtmlEmail(nome);
   const assuntoSeguro = escaparHtmlEmail(assunto);
   const senhaSegura = escaparHtmlEmail(senhaTemporaria);
+  const linkVideoPrimeiroAcesso = obterLinkVideoPrimeiroAcesso_();
+  const blocoVideoTexto = linkVideoPrimeiroAcesso
+    ? '\n\nPrimeiro acesso: assista ao tutorial em ' + linkVideoPrimeiroAcesso + '\n'
+    : '';
+  const blocoVideoHtml = linkVideoPrimeiroAcesso
+    ? '<div style="margin:0 0 16px;padding:14px 16px;background:#edf5ff;border-left:4px solid #0d6efd;font-size:14px;line-height:1.5;color:#17365d;"><strong>Primeiro acesso:</strong> veja o passo a passo em <a href="' + escaparHtmlEmail(linkVideoPrimeiroAcesso) + '" style="color:#0d3b72;font-weight:700;">Assistir tutorial</a>.</div>'
+    : '';
   const corpo = 'Olá, ' + (nome || '') + '.\n\n' +
     'Sua conta no Sistema Integrado da Rede de Proteção foi ' + assunto + '.\n' +
     'Senha temporária: ' + senhaTemporaria + '\n\n' +
-    'Ao acessar, escolha imediatamente uma senha pessoal.\n\n' +
+    'Ao acessar, escolha imediatamente uma senha pessoal.' + blocoVideoTexto + '\n' +
     'Se você não reconhece esta solicitação, entre em contato com a administração do sistema.';
   const corpoHtml =
     '<div style="margin:0;padding:32px 16px;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#17365d;">' +
@@ -367,6 +766,7 @@ function enviarAvisoAcesso(email, nome, assunto, senhaTemporaria) {
             '<div style="font-family:Consolas,Monaco,monospace;font-size:27px;font-weight:700;letter-spacing:1.5px;color:#0d3b72;word-break:break-all;">' + senhaSegura + '</div>' +
           '</div>' +
           '<p style="margin:0 0 16px;padding:14px 16px;background:#fff8e8;border-left:4px solid #e2a529;font-size:14px;line-height:1.5;color:#5b4310;">Por segurança, no primeiro acesso você deverá escolher uma senha pessoal.</p>' +
+          blocoVideoHtml +
           '<p style="margin:0;font-size:13px;line-height:1.5;color:#65758a;">Se você não reconhece esta solicitação, entre em contato com a administração do sistema.</p>' +
         '</td></tr>' +
         '<tr><td style="padding:16px 32px;background:#f4f7fb;border-top:1px solid #e4eaf1;font-size:12px;color:#718096;text-align:center;">Mensagem automática — não responda a este e-mail.</td></tr>' +
@@ -703,8 +1103,9 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
 
     const ultimaLinhaUsuarios = abaUsuarios.getLastRow();
     const dados = ultimaLinhaUsuarios > 0
-      ? abaUsuarios.getRange(1, 1, ultimaLinhaUsuarios, 6).getValues()
+      ? abaUsuarios.getRange(1, 1, ultimaLinhaUsuarios, Math.max(abaUsuarios.getLastColumn(), 6)).getValues()
       : [];
+    const cabecalhosUsuarios = dados[0] || [];
     let usuarioEncontrado = null;
     
     // Estrutura esperada: [0] Email, [1] Nome, [2] Setor/Órgão, [3] Nível de Acesso, [4] Senha
@@ -724,7 +1125,7 @@ function validarLoginManual(emailDigitado, senhaDigitada) {
           setor: dados[i][2] ? String(dados[i][2]).trim() : '',
           nivel: dados[i][3] ? String(dados[i][3]).trim() : '',
           nivelAcesso: dados[i][3] ? String(dados[i][3]).trim() : '', // Mantido por compatibilidade
-          trocaSenhaObrigatoria: dados[i][5] ? String(dados[i][5]).trim() : '',
+          trocaSenhaObrigatoria: obterEstadoTrocaSenha_(dados[i], cabecalhosUsuarios),
           corTema: "",
           urlLogo: ""
         };

@@ -1,0 +1,83 @@
+<script>
+  window.videosAjudaGestao = [];
+  window.opcoesGestaoVideos = { perfis: [], setores: [] };
+  window.opcoesGestaoVideosCarregadas = false;
+  function escaparHtmlVideos(valor) { return escaparHtmlAjuda(valor); }
+  function carregarGestaoVideos(aoConcluir) {
+    const corpo = document.getElementById('tabela-videos-body');
+    if (!corpo) return;
+    corpo.innerHTML = '<tr><td colspan="5" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Carregando vídeos...</td></tr>';
+    google.script.run.withSuccessHandler(function(resposta) {
+      if (!resposta || !resposta.sucesso) { corpo.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-danger">' + escaparHtmlVideos((resposta && resposta.erro) || 'Erro ao carregar.') + '</td></tr>'; return; }
+      window.videosAjudaGestao = resposta.videos || [];
+      window.opcoesGestaoVideos = resposta.opcoes || window.opcoesGestaoVideos;
+      window.opcoesGestaoVideosCarregadas = true;
+      corpo.innerHTML = window.videosAjudaGestao.length ? window.videosAjudaGestao.map(function(video) {
+        const status = video.status === 'PUBLICADO' ? 'success' : video.status === 'INATIVO' ? 'secondary' : 'warning';
+        const acaoAtivacao = video.status === 'INATIVO'
+          ? '<button class="btn btn-sm btn-outline-success ms-1" title="Reativar vídeo" onclick="alterarAtivacaoVideoAjuda(\'' + video.id + '\', false)"><i class="bi bi-play"></i></button>'
+          : '<button class="btn btn-sm btn-outline-secondary ms-1" title="Inativar vídeo" onclick="alterarAtivacaoVideoAjuda(\'' + video.id + '\', true)"><i class="bi bi-pause"></i></button>';
+        return '<tr><td><strong>' + escaparHtmlVideos(video.titulo) + '</strong><div class="small text-muted">' + escaparHtmlVideos(video.categoria) + '</div></td><td class="small">' + escaparHtmlVideos(video.perfis) + '<br>' + escaparHtmlVideos(video.setores) + '</td><td><span class="badge text-bg-' + status + '">' + escaparHtmlVideos(video.status) + '</span></td><td>' + (window.videosAjudaGestao.indexOf(video) + 1) + 'º</td><td class="text-end"><button class="btn btn-sm btn-outline-primary" title="Editar vídeo" onclick="editarVideoAjuda(\'' + video.id + '\')"><i class="bi bi-pencil"></i></button>' + acaoAtivacao + '</td></tr>';
+      }).join('') : '<tr><td colspan="5" class="text-center py-4 text-muted">Nenhum vídeo cadastrado.</td></tr>';
+      if (aoConcluir) aoConcluir();
+    }).withFailureHandler(function() { corpo.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-danger">Erro de comunicação.</td></tr>'; if (aoConcluir) aoConcluir(); }).listarVideosAjudaParaGestao(obterTokenSessao());
+  }
+  function carregarOpcoesGestaoVideos(aoConcluir) {
+    if (window.opcoesGestaoVideosCarregadas) { if (aoConcluir) aoConcluir(); return; }
+    carregarGestaoVideos(aoConcluir);
+  }
+  function valorListaVideo(valor) { return String(valor || '').split(',').map(function(item) { return item.trim(); }).filter(Boolean); }
+  function montarListaPublicoVideo(tipo, selecionados) {
+    const lista = document.getElementById('video-ajuda-lista-' + tipo);
+    const opcoes = window.opcoesGestaoVideos[tipo] || [];
+    const escolhidos = valorListaVideo(selecionados);
+    lista.innerHTML = opcoes.length ? opcoes.map(function(opcao, indice) {
+      const id = 'video-ajuda-' + tipo + '-' + indice;
+      return '<div class="form-check"><input class="form-check-input" type="checkbox" value="' + escaparHtmlVideos(opcao) + '" id="' + id + '"' + (escolhidos.indexOf(opcao) > -1 ? ' checked' : '') + '><label class="form-check-label" for="' + id + '">' + escaparHtmlVideos(opcao) + '</label></div>';
+    }).join('') : '<span class="text-muted">Nenhuma opção cadastrada.</span>';
+  }
+  function alternarPublicoVideo(tipo) { const todos = document.getElementById('video-ajuda-todos-' + tipo).checked; document.getElementById('video-ajuda-lista-' + tipo).classList.toggle('opacity-50', todos); document.getElementById('video-ajuda-lista-' + tipo).querySelectorAll('input').forEach(function(input) { input.disabled = todos; }); }
+  function obterPublicoVideo(tipo) { if (document.getElementById('video-ajuda-todos-' + tipo).checked) return 'TODOS'; return Array.from(document.querySelectorAll('#video-ajuda-lista-' + tipo + ' input:checked')).map(function(input) { return input.value; }).join(','); }
+  function montarPosicoesVideo(video) {
+    const select = document.getElementById('video-ajuda-posicao');
+    const outros = window.videosAjudaGestao.filter(function(item) { return item.id !== video.id; });
+    select.innerHTML = '<option value="INICIO">Primeiro da lista</option>' + outros.map(function(item) { return '<option value="APOS:' + item.id + '">Após: ' + escaparHtmlVideos(item.titulo) + '</option>'; }).join('') + '<option value="FINAL">Último da lista</option>';
+    const anterior = outros.filter(function(item) { return item.ordem < (video.ordem || 999); }).pop();
+    select.value = anterior ? 'APOS:' + anterior.id : (video.id && video.ordem <= (outros[0] || {}).ordem ? 'INICIO' : 'FINAL');
+  }
+  function abrirModalVideoAjuda(video) {
+    if (!window.opcoesGestaoVideosCarregadas) { carregarOpcoesGestaoVideos(function() { abrirModalVideoAjuda(video); }); return; }
+    video = video || { perfis: 'TODOS', setores: 'TODOS', status: 'EM_PREPARACAO' };
+    document.getElementById('video-ajuda-id').value = video.id || '';
+    document.getElementById('video-ajuda-titulo').value = video.titulo || '';
+    document.getElementById('video-ajuda-categoria').value = video.categoria || '';
+    document.getElementById('video-ajuda-descricao').value = video.descricao || '';
+    document.getElementById('video-ajuda-url').value = video.url || '';
+    document.getElementById('video-ajuda-todos-perfis').checked = (video.perfis || 'TODOS') === 'TODOS';
+    document.getElementById('video-ajuda-todos-setores').checked = (video.setores || 'TODOS') === 'TODOS';
+    montarListaPublicoVideo('perfis', video.perfis === 'TODOS' ? [] : video.perfis);
+    montarListaPublicoVideo('setores', video.setores === 'TODOS' ? [] : video.setores);
+    alternarPublicoVideo('perfis'); alternarPublicoVideo('setores'); montarPosicoesVideo(video);
+    new bootstrap.Modal(document.getElementById('modalVideoAjuda')).show();
+  }
+  function editarVideoAjuda(id) { abrirModalVideoAjuda(window.videosAjudaGestao.find(function(video) { return video.id === id; })); }
+  function salvarVideoAjudaFrontend() {
+    const form = document.getElementById('form-video-ajuda'); if (!form.reportValidity()) return;
+    const dados = { id: document.getElementById('video-ajuda-id').value, titulo: document.getElementById('video-ajuda-titulo').value, categoria: document.getElementById('video-ajuda-categoria').value, descricao: document.getElementById('video-ajuda-descricao').value, url: document.getElementById('video-ajuda-url').value, perfis: obterPublicoVideo('perfis'), setores: obterPublicoVideo('setores'), posicao: document.getElementById('video-ajuda-posicao').value };
+    google.script.run.withSuccessHandler(function(resposta) { if (!resposta || !resposta.sucesso) { Swal.fire('Não foi possível salvar', (resposta && resposta.erro) || 'Erro desconhecido.', 'error'); return; } const modal = bootstrap.Modal.getInstance(document.getElementById('modalVideoAjuda')); if (modal) modal.hide(); carregarGestaoVideos(); Swal.fire('Vídeo salvo', 'A Central de Ajuda foi atualizada.', 'success'); }).withFailureHandler(function(erro) { Swal.fire('Erro', String(erro), 'error'); }).salvarVideoAjuda(dados, obterTokenSessao());
+  }
+  function alterarAtivacaoVideoAjuda(id, inativar) {
+    const titulo = inativar ? 'Inativar vídeo?' : 'Reativar vídeo?';
+    const texto = inativar ? 'Ele deixará de aparecer para os usuários.' : 'Ele voltará a aparecer conforme o link cadastrado.';
+    Swal.fire({ title: titulo, text: texto, icon: 'warning', showCancelButton: true, confirmButtonText: inativar ? 'Inativar' : 'Reativar', cancelButtonText: 'Cancelar' }).then(function(resultado) {
+      if (!resultado.isConfirmed) return;
+      google.script.run.withSuccessHandler(function(resposta) {
+        if (!resposta || !resposta.sucesso) { Swal.fire('Não foi possível alterar', (resposta && resposta.erro) || 'Erro desconhecido.', 'error'); return; }
+        carregarGestaoVideos();
+        Swal.fire('Vídeo atualizado', 'A situação do vídeo foi alterada.', 'success');
+      }).withFailureHandler(function(erro) { Swal.fire('Erro', String(erro), 'error'); }).alterarAtivacaoVideoAjuda(id, inativar, obterTokenSessao());
+    });
+  }
+  function abrirPastaVideosAjuda() { google.script.run.withSuccessHandler(function(resposta) { if (!resposta || !resposta.sucesso) { Swal.fire('Erro', (resposta && resposta.erro) || 'Não foi possível abrir a pasta.', 'error'); return; } if (!resposta.configurada) { Swal.fire('Pasta não configurada', 'Defina a propriedade RPM_PASTA_VIDEOS_ID com o ID da pasta institucional de vídeos.', 'info'); return; } window.open(resposta.url, '_blank', 'noopener'); }).obterPastaVideosAjuda(obterTokenSessao()); }
+  document.addEventListener('DOMContentLoaded', function() { carregarGestaoVideos(); });
+</script>

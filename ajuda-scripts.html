@@ -1,0 +1,73 @@
+<script>
+  function escaparHtmlAjuda(valor) {
+    return String(valor || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
+  function obterUrlIncorporadaVideo(url) {
+    try {
+      const endereco = new URL(url);
+      const host = endereco.hostname.replace(/^www\./, '').toLowerCase();
+      let idYoutube = '';
+      if (host === 'youtu.be') idYoutube = endereco.pathname.split('/').filter(Boolean)[0] || '';
+      if (host === 'youtube.com' || host === 'm.youtube.com') {
+        idYoutube = endereco.searchParams.get('v') || '';
+        if (!idYoutube && /^\/(embed|shorts)\//.test(endereco.pathname)) idYoutube = endereco.pathname.split('/')[2] || '';
+      }
+      if (idYoutube) return 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(idYoutube) + '?autoplay=1&rel=0';
+      const drive = endereco.pathname.match(/\/file\/d\/([^/]+)/);
+      if (host === 'drive.google.com' && drive) return 'https://drive.google.com/file/d/' + encodeURIComponent(drive[1]) + '/preview';
+    } catch (erro) { /* A validação do cadastro já exige URL https. */ }
+    return url;
+  }
+
+  function abrirVideoAjuda(url, titulo) {
+    if (!/^https:\/\//i.test(String(url || ''))) { Swal.fire('Vídeo indisponível', 'O link deste vídeo ainda não foi cadastrado.', 'info'); return; }
+    const incorporada = obterUrlIncorporadaVideo(url);
+    Swal.fire({
+      title: titulo || 'Vídeo de ajuda',
+      html: '<div class="ratio ratio-16x9"><iframe src="' + escaparHtmlAjuda(incorporada) + '" title="' + escaparHtmlAjuda(titulo || 'Vídeo de ajuda') + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>',
+      width: 900,
+      showConfirmButton: false,
+      showCloseButton: true,
+      didClose: function() { document.querySelectorAll('.swal2-container iframe').forEach(function(frame) { frame.src = 'about:blank'; }); }
+    });
+  }
+
+  function carregarCentralAjuda() {
+    const loading = document.getElementById('ajuda-loading');
+    const lista = document.getElementById('ajuda-lista');
+    const vazia = document.getElementById('ajuda-vazia');
+    if (loading) loading.classList.remove('d-none');
+    if (lista) { lista.classList.add('d-none'); lista.innerHTML = ''; }
+    if (vazia) vazia.classList.add('d-none');
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        if (loading) loading.classList.add('d-none');
+        if (!resposta || !resposta.sucesso) {
+          if (vazia) { vazia.classList.remove('d-none'); vazia.querySelector('p').textContent = (resposta && resposta.erro) || 'Não foi possível carregar os tutoriais.'; }
+          return;
+        }
+        renderizarVideosAjuda(resposta.videos || []);
+      })
+      .withFailureHandler(function() { if (loading) loading.classList.add('d-none'); if (vazia) vazia.classList.remove('d-none'); })
+      .obterVideosAjuda(obterTokenSessao());
+  }
+
+  function renderizarVideosAjuda(videos) {
+    const lista = document.getElementById('ajuda-lista');
+    const vazia = document.getElementById('ajuda-vazia');
+    if (!lista) return;
+    if (!videos.length) { if (vazia) vazia.classList.remove('d-none'); return; }
+    lista.innerHTML = videos.map(function(video) {
+      const publicado = video.status === 'PUBLICADO' && /^https:\/\//i.test(video.url);
+      const acao = publicado
+        ? '<button class="btn btn-primary w-100" type="button" data-video-url="' + escaparHtmlAjuda(video.url) + '" data-video-titulo="' + escaparHtmlAjuda(video.titulo) + '" onclick="abrirVideoAjuda(this.dataset.videoUrl, this.dataset.videoTitulo)"><i class="bi bi-play-circle me-1"></i>Assistir vídeo</button>'
+        : '<button class="btn btn-outline-secondary w-100" type="button" disabled><i class="bi bi-clock-history me-1"></i>Vídeo em preparação</button>';
+      return '<div class="col-md-6 col-xl-4"><article class="card h-100 border-0 shadow-sm ajuda-video-card"><div class="card-body d-flex flex-column">' +
+        '<div class="d-flex justify-content-between align-items-start gap-2 mb-3"><span class="badge text-bg-light border text-primary">' + escaparHtmlAjuda(video.categoria) + '</span><i class="bi bi-play-btn fs-3 text-primary"></i></div>' +
+        '<h5 class="card-title">' + escaparHtmlAjuda(video.titulo) + '</h5><p class="card-text text-muted small flex-grow-1">' + escaparHtmlAjuda(video.descricao) + '</p>' + acao +
+        '</div></article></div>';
+    }).join('');
+    lista.classList.remove('d-none');
+  }
+</script>

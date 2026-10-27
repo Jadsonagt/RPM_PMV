@@ -4,7 +4,7 @@ Este sistema trata dados pessoais sensíveis. A implantação de produção deve
 
 ## O que já foi preparado no código
 
-- O Web App foi configurado para acesso apenas ao domínio do implantador (`DOMAIN`).
+- O Web App permite abrir a tela de login sem uma Conta do Google conectada (`ANYONE_ANONYMOUS`); o uso do sistema permanece restrito aos usuários previamente cadastrados.
 - IDs da planilha, pasta de backup e e-mails institucionais foram retirados do código.
 - A configuração agora fica nas Propriedades do script.
 - A página não permite mais ser incorporada livremente em outros sites.
@@ -12,7 +12,7 @@ Este sistema trata dados pessoais sensíveis. A implantação de produção deve
 ## Decisões necessárias antes da implantação
 
 1. Definir a conta técnica institucional que será proprietária e fará a implantação, por exemplo `sistemas-rede-protecao@<dominio-da-prefeitura>`.
-2. Confirmar o domínio Workspace que poderá acessar o sistema.
+2. Confirmar a lista de e-mails dos órgãos parceiros que assinaram os termos de uso e serão cadastrados no sistema.
 3. Definir a pasta institucional de backups, preferencialmente em Drive Compartilhado com acesso restrito à equipe responsável.
 4. Validar, com Encarregado/LGPD e TI, quem pode consultar os dados e por quanto tempo os backups serão retidos.
 
@@ -27,7 +27,7 @@ Este sistema trata dados pessoais sensíveis. A implantação de produção deve
 ## Criar e configurar o projeto Apps Script institucional
 
 1. Faça login no Workspace com a conta técnica.
-2. Crie um novo projeto Apps Script no Drive Compartilhado ou transfira uma cópia do projeto para esse ambiente. A implantação precisa ser recriada no domínio institucional.
+2. Crie um novo projeto Apps Script no Drive Compartilhado ou transfira uma cópia do projeto para esse ambiente. A implantação precisa ser recriada sob a conta institucional.
 3. Envie este código para o novo projeto. Não reutilize o `scriptId` do arquivo `.clasp.json` atual.
 4. Em **Configurações do projeto > Propriedades do script**, crie estas propriedades:
 
@@ -46,11 +46,11 @@ Este sistema trata dados pessoais sensíveis. A implantação de produção deve
 
 1. Em **Implantar > Nova implantação > App da Web**, selecione:
    - Executar como: **usuário que fez a implantação**;
-   - Quem tem acesso: **somente usuários do domínio da Prefeitura**.
-2. Use primeiro **Testar implantações** com uma conta administradora e uma conta comum do domínio.
+   - Quem tem acesso: **qualquer pessoa**.
+2. Use primeiro **Testar implantações** com uma conta administradora e uma conta externa previamente cadastrada.
 3. Faça o checklist abaixo antes de liberar a URL `/exec`:
-   - usuário fora do domínio não acessa;
    - usuário sem cadastro no sistema não consegue entrar;
+   - usuário previamente cadastrado consegue entrar apenas com o perfil autorizado;
    - cada perfil vê apenas os recursos e dados permitidos;
    - criação, redefinição de senha e auditoria funcionam;
    - backup manual cria arquivo na pasta correta e envia o aviso;
